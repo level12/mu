@@ -41,6 +41,7 @@ class Config:
     default_env: str
     action_key: str
     _environ: dict[str, str]
+    event_rules: dict[str, dict[str, str]]
     # TODO: set region in config or trust its all setup in the active environ?
     aws_region: str | None = None
 
@@ -95,4 +96,5 @@ def load(start_at: Path):
         default_env=environ.get('MU_DEFAULT_ENV') or utils.host_user(),
         action_key=action_key,
         _environ=deep_get(config, 'tool.mu.lambda-env', default={}),
+        event_rules=deep_get(config, 'tool.mu.event-rules', default={}),
     )

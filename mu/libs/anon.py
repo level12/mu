@@ -42,6 +42,7 @@ class Lambda:
         self.aws_acct_id = sts.account_id(b3_sess)
 
         self.lc = b3_sess.client('lambda')
+        self.event_client = b3_sess.client('events')
         self.docker = docker.from_env()
 
         self.roles = iam.Roles(b3_sess)
@@ -110,7 +111,7 @@ class Lambda:
         }
 
         try:
-            self.lc.create_function(
+            response = self.lc.create_function(
                 PackageType='Image',
                 Code={'ImageUri': image_uri},
                 **shared_config,
@@ -118,7 +119,7 @@ class Lambda:
             print(f'Lambda function created: {lambda_name}')
         except self.lc.exceptions.ResourceConflictException:
             try:
-                self.lc.update_function_configuration(**shared_config)
+                response = self.lc.update_function_configuration(**shared_config)
                 self.wait_updated(lambda_name)
 
                 self.lc.update_function_code(
@@ -138,6 +139,8 @@ class Lambda:
                 self.delete_func(env_name)
                 self.create_func(image_uri, lambda_name)
 
+        return response['FunctionArn']
+
     def delete_func(self, env_name):
         lambda_name = self.lambda_name(env_name)
         self.lc.delete_function(
@@ -145,12 +148,54 @@ class Lambda:
         )
         print(f'Lambda function {lambda_name} deleted.')
 
+    def event_rules(self, env_name, func_arn):
+        lambda_name = self.config.lambda_name_env(env_name)
+        for rule_ident, config in self.config.event_rules.items():
+            rule_name = f'{lambda_name}-{rule_ident}'
+            log.info('Adding event schedule: %s', rule_name)
+
+            # TODO: better error handling
+            assert 'rate' not in config or 'cron' not in config
+            assert 'rate' in config or 'cron' in config
+
+            resp = self.event_client.put_rule(
+                Name=rule_name,
+                State=config.get('state', 'enabled').upper(),
+                ScheduleExpression=(
+                    f'rate({config["rate"]})' if 'rate' in config else f'cron({config["cron"]})'
+                ),
+            )
+            rule_arn = resp['RuleArn']
+
+            lambda_event = {'do-action': config['action']}
+            self.event_client.put_targets(
+                Rule=rule_name,
+                Targets=[{'Id': 'lambda-func', 'Arn': func_arn, 'Input': json.dumps(lambda_event)}],
+            )
+
+            try:  # noqa: SIM105
+                self.lc.add_permission(
+                    FunctionName=func_arn,
+                    StatementId=rule_name,
+                    Action='lambda:InvokeFunction',
+                    Principal='events.amazonaws.com',
+                    SourceArn=rule_arn,
+                )
+            except self.lc.exceptions.ResourceConflictException:
+                # TODO: do we need to be smarter about re-creating this?
+                pass
+
+            log.info('Rule arn: %s', rule_arn)
+
     def deploy(self, target_envs):
         for env in target_envs:
-            repo: ecr.Repo = self.repo(env)
-            image_tag: str = repo.push(self.config.image_name)
-            image_uri = f'{repo.uri}:{image_tag}'
-            self.ensure_func(env, image_uri)
+            # repo: ecr.Repo = self.repo(env)
+            # image_tag: str = repo.push(self.config.image_name)
+            # image_uri = f'{repo.uri}:{image_tag}'
+            # func_arn = self.ensure_func(env, image_uri)
+            func_arn = 'arn:aws:lambda:us-east-2:429829037495:function:starfleet-mu-hello-handler-rsyringmeld'
+            log.info('Function arn: %s', func_arn)
+            self.event_rules(env, func_arn)
 
         lambda_name = self.config.lambda_name_env(env)
         self.wait_updated(lambda_name)
