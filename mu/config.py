@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from os import environ
 from pathlib import Path
 import tomllib
@@ -66,6 +66,14 @@ class Config:
 
     def environ(self):
         return {name: self.resolve_env(val) for name, val in self._environ.items()}
+
+    def for_print(self):
+        config = asdict(self)
+        config['project_env'] = f'{self.project_env(self.default_env)}'
+        config['lambda_env'] = f'{self.lambda_env(self.default_env)}'
+        config['lambda_name_env'] = f'{self.lambda_name_env(self.default_env)}'
+        config['repo_name'] = f'{self.repo_name(self.default_env)}'
+        return config
 
 
 def load(start_at: Path):

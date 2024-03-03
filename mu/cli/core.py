@@ -61,7 +61,7 @@ def config(ctx):
     """Display mu config for active project"""
     config: Config = ctx.obj
 
-    pprint(config)
+    utils.print_dict(config.for_print())
 
 
 @cli.command()

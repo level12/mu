@@ -67,3 +67,13 @@ def take(from_: dict, *keys):
 
 def host_user():
     return f'{getpass.getuser()}.{platform.node()}'
+
+
+def print_dict(d, indent=0):
+    for key in sorted(d.keys()):
+        value = d[key]
+        if isinstance(value, dict):
+            print('    ' * indent, f'{key}:')
+            print_dict(value, indent + 1)
+        else:
+            print('    ' * indent, f'{key}:', value)
