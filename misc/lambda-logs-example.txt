@@ -1,0 +1,44 @@
+{
+    'timestamp': '2024-03-03T06:34:04Z',
+    'level': 'ERROR',
+    'message': 'This is an error',
+    'logger': 'mu.libs.handler',
+    'requestId': '33f21605-f34e-4869-92fa-c52f42980fef',
+}
+{
+    'timestamp': '2024-03-03T06:34:04Z',
+    'level': 'WARNING',
+    'message': 'This is a warning',
+    'logger': 'mu.libs.handler',
+    'requestId': '33f21605-f34e-4869-92fa-c52f42980fef',
+}
+{
+    'timestamp': '2024-03-03T06:34:04Z',
+    'level': 'INFO',
+    'message': 'This is an info log',
+    'logger': 'mu.libs.handler',
+    'requestId': '33f21605-f34e-4869-92fa-c52f42980fef',
+}
+{
+    'time': '2024-03-03T06:34:04.867Z',
+    'type': 'platform.start',
+    'record': {
+        'requestId': '33f21605-f34e-4869-92fa-c52f42980fef',
+        'version': '$LATEST',
+    },
+}
+{
+    'time': '2024-03-03T06:34:04.869Z',
+    'type': 'platform.report',
+    'record': {
+        'requestId': '33f21605-f34e-4869-92fa-c52f42980fef',
+        'metrics': {
+            'durationMs': 2.215,
+            'billedDurationMs': 153,
+            'memorySizeMB': 4096,
+            'maxMemoryUsedMB': 33,
+            'initDurationMs': 150.362,
+        },
+        'status': 'success',
+    },
+}

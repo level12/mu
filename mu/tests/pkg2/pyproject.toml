@@ -1,0 +1,7 @@
+[tool.reqs]
+dpath = 'reqs'
+sync_pipx = true
+
+[tool.reqs.depends]
+'common.in' = ''
+'dev.in' = 'common.txt'

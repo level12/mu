@@ -1,0 +1,9 @@
+boto3
+cryptography
+arrow
+docker
+requests
+click
+BlazeUtils
+methodtools
+colorlog

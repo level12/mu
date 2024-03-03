@@ -1,0 +1,7 @@
+[project]
+name = 'TNG'
+
+[tool.mu]
+project-org = 'Starfleet'
+aws-region = 'us-east-2'
+

@@ -1,0 +1,96 @@
+[build-system]
+requires = ['hatchling', 'hatch-requirements-txt']
+build-backend = 'hatchling.build'
+
+[project]
+name = 'Mu'
+authors = [{name = "Randy Syring", email = "randy.syring@level12.io"}]
+# TODO: dynamic version
+version = '0.1'
+dynamic = ['dependencies', 'optional-dependencies']
+
+[project.scripts]
+mu = "mu.cli:cli"
+
+[tool.hatch.metadata.hooks.requirements_txt]
+files = ['requirements/base.txt']
+
+[tool.hatch.metadata.hooks.requirements_txt.optional-dependencies]
+dev = ['requirements/dev.txt']
+
+[tool.reqs]
+sync_pipx = true
+
+
+[tool.ruff]
+line-length = 100
+fixable = [
+    'I',
+    'Q',
+    'C4',
+    'COM',
+    'UP',
+    'PIE790',  # Unnecessary pass statement
+    'W291',    # Trailing whitespace
+    'W293',    # Blank line contains whitespace
+    'RUF100',  # Unused blanket noqa directive
+    'E711',    # Comparison to `None` should be `cond is None`
+    'E712',    # Comparison to `True` should be `cond is True` or `if cond:`
+    'E713',    # Test for membership should be `not in`
+    'E714',    # Test for object identity should be `is not`
+    'F901',    # `raise NotImplemented` should be `raise NotImplementedError`
+]
+select = [
+    'E',   # ruff default: pycodestyle errors
+    'W',   # pycodestyle warnings
+    'F',   # ruff default: pyflakes
+    'I',   # isort
+    'Q',   # flake8-quotes
+    'UP',  # pyupgrade
+    'YTT', # flake8-2020
+    'B',   # flake8-bandit
+    'A',   # flake8-builtins
+    'C4',  # flake8-comprehensions
+    'T10', # flake8-debugger
+    'DJ',  # flake8-django
+    'EXE', # flake8-executable
+    'PIE', # flake8-pie
+    'COM', # flake-8 commas
+    'RUF', # ruff specific
+    'SIM', # flake8-simplify
+    'ISC',  # https://pypi.org/project/flake8-implicit-str-concat/
+    'PTH',  # flake8-use-pathlib
+    # 'DTZ',  # flake8-datetimez
+    # 'ERA',  # flake8-eradicate
+
+]
+ignore = [
+    'A003',    # Class attribute is shadowing a Python builtin
+    'RUF013',  # PEP 484 prohibits implicit `Optional`
+    'E731',    # Do not assign a `lambda` expression, use a `def`
+]
+target-version = 'py311'
+
+[tool.ruff.per-file-ignores]
+'mu/cli/__init__.py' = ['F401', 'I001']
+
+
+[tool.ruff.flake8-builtins]
+builtins-ignorelist = ['id', 'help']
+
+
+[tool.ruff.isort]
+lines-after-imports = 2
+force-sort-within-sections = true
+known-first-party = ['zulu']
+
+
+[tool.ruff.flake8-quotes]
+# Prefer using different quote to escaping strings
+avoid-escape = true
+inline-quotes = 'single'
+
+
+[tool.ruff.format]
+line-ending = 'lf'
+quote-style = 'single'

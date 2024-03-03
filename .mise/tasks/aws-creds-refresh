@@ -1,0 +1,70 @@
+#!/usr/bin/env python
+# mise description="Generate and save (encrypted) AWS creds to use for testing mu"
+
+import boto3
+import click
+
+from mu.libs import orgs, utils
+
+
+@click.command()
+@click.option('--test-acct-id', 'acct_id', envvar='MU_TEST_ACCT_ID')
+@click.option('--test-role-name', 'role_name', envvar='MU_TEST_ROLE_NAME')
+def aws_creds_refresh(acct_id, role_name):
+    """
+    Generate and save (encrypted) credentials for the AWS test account
+
+    This presumes you are using an account that is part of an organization and want to use a
+    role to access that account.
+
+    TODO: could still generate creds for a direct account.  Has the benefit of expiring.
+    """
+    if not acct_id or not role_name:
+        print('acct id:', acct_id)
+        print('role name:', role_name)
+        print(
+            'ERROR: the test acct id and role name need to be set.'
+            '  Use CLI options or env variables.',
+        )
+        return
+
+    # AWS STS Client
+    sts_client = boto3.client('sts')
+
+    # Replace these with your role ARN and session name
+    role_arn = f'arn:aws:iam::{acct_id}:role/{role_name}'
+    session_name = 'mu-test-session'
+    duration_seconds = 3600  # Duration in seconds
+
+    # Assume the role
+    assumed_role = sts_client.assume_role(
+        RoleArn=role_arn,
+        RoleSessionName=session_name,
+        DurationSeconds=duration_seconds,
+    )
+
+    creds = utils.take(
+        assumed_role['Credentials'],
+        'AccessKeyId',
+        'SecretAccessKey',
+        'SessionToken',
+    )
+
+    session = boto3.Session(
+        aws_access_key_id=creds['AccessKeyId'],
+        aws_secret_access_key=creds['SecretAccessKey'],
+        aws_session_token=creds['SessionToken'],
+    )
+
+    # Get account information
+    sts_client = session.client('sts')
+    ident = sts_client.get_caller_identity()
+    acct_name = orgs.acct_name(ident['Account'])
+
+    utils.EncryptedTempFile('mu-aws-test-creds').save(creds)
+
+    print(f'Tests will use account: {acct_name}, role: {role_name}')
+
+
+if __name__ == '__main__':
+    aws_creds_refresh()

@@ -1,0 +1,13 @@
+*.egg-info
+_shiv_dist
+*.pyz
+*.pyc
+*.zip
+.vscode
+.env
+*.whl
+.coverage*
+coverage.xml
+.ci/test-reports
+dist
+abbr.fish

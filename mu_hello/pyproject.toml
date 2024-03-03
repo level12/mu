@@ -1,0 +1,9 @@
+[project]
+name = 'mu Hello'
+
+[tool.mu]
+project-org = 'Starfleet'
+
+[tool.mu.lambda-env]
+FOO = 'bar'
+A_SECRET = 'op://private/mu-hello example/password'

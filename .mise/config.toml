@@ -1,0 +1,9 @@
+[env]
+FLASK_DEBUG = '1'
+
+# Override in a local mise config file if this doesn't match your acct.
+MU_TEST_ACCT_ID = '429829037495'
+
+[tools]
+python.version = "3.11"
+python.virtualenv = "{{env.WORKON_HOME}}/mu-dev"

@@ -1,0 +1,55 @@
+#!/usr/bin/env python
+# mise description="Compile requirements files"
+
+import argparse
+from pathlib import Path
+
+from _shared import reqs_dpath, run
+
+
+def _reqs_stale(txt_fpath, dep_fpaths):
+    if not txt_fpath.exists():
+        return True
+
+    return any(txt_fpath.stat().st_mtime < dep_fpath.stat().st_mtime for dep_fpath in dep_fpaths)
+
+
+def _reqs_compile(force, in_fname, *dep_fnames):
+    in_fpath = reqs_dpath / in_fname
+    txt_fpath = in_fpath.with_suffix('.txt')
+
+    dep_fpaths = [in_fpath]
+    dep_fpaths.extend(reqs_dpath / fname for fname in dep_fnames)
+
+    if force or _reqs_stale(txt_fpath, dep_fpaths):
+        print(f'Compiling: {in_fname}')
+        run(
+            'pip-compile',
+            '--quiet',
+            '--strip-extras',
+            '--annotate',
+            '--generate-hashes',
+            '--output-file',
+            txt_fpath.relative_to(Path.cwd()),
+            in_fpath.relative_to(Path.cwd()),
+        )
+        return
+
+    print(f'Up-to-date: {txt_fpath.name}')
+
+
+def reqs_compile(force=False):
+    _reqs_compile(force, 'base.in')
+    _reqs_compile(force, 'dev.in', 'base.txt')
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Compile Python requirements.')
+    parser.add_argument(
+        '--force',
+        action='store_true',
+        help='Force recompilation of requirements.',
+    )
+
+    args = parser.parse_args()
+    reqs_compile(args.force)

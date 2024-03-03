@@ -1,0 +1,20 @@
+#!/usr/bin/env python
+# mise description="Sync reqs to active venv and pipx"
+# mise alias="reqs"
+# mise depends=['reqs-compile']
+from pathlib import Path
+
+from _shared import base_dpath, pip, pipx_install, reqs_dpath
+
+
+def reqs_sync():
+    reqs_fpath = reqs_dpath / 'dev.txt'
+    print(f'Installing {reqs_fpath.relative_to(Path.cwd())}')
+    ('install', '-r', reqs_fpath)
+    pip('install', '-e', base_dpath)
+
+    pipx_install('install', '--force', '-e', base_dpath)
+
+
+if __name__ == '__main__':
+    reqs_sync()

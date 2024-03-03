@@ -1,0 +1,6 @@
+
+aws-vault:
+  # A profile setup in ~/.aws/config that should use a dedicated aws org sub-account for mu testing.
+  # Testing can destroy things in the account so make sure you use a dedicated acct. You've been
+  # WARNED!  :o)
+  - mu-test
