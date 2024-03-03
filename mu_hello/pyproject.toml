@@ -1,5 +1,6 @@
 [project]
-name = 'mu Hello'
+name = 'mu-Hello'
+version = '0.1'
 
 [tool.mu]
 project-org = 'Starfleet'
