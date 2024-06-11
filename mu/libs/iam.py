@@ -119,26 +119,27 @@ class Policies:
 
         self.iam = b3_sess.client('iam')
 
-    def refresh(self):
+    def load(self):
         if self.policies is not None:
             return
 
         policies = self.iam.list_policies(Scope='Local')['Policies']
         self.policies = {policy['PolicyName']: Policy(self.iam, policy) for policy in policies}
 
-    def reset(self):
+    def clear(self):
         self.policies = None
 
     def get(self, name) -> Policy:
-        self.refresh()
+        self.load()
 
         return self.policies.get(name)
 
     def add(self, policy: Policy):
+        self.load()
         self.policies[policy.policy_name] = policy
 
     def delete(self, *names):
-        self.refresh()
+        self.load()
 
         for name in names:
             if name not in self.policies:
@@ -147,12 +148,17 @@ class Policies:
             self.policies[name].delete()
             del self.policies[name]
 
+        self.clear()
+
 
 class Roles:
     def __init__(self, b3_sess):
         self.iam = b3_sess.client('iam')
         self.policies = Policies(b3_sess)
-        self.aws_acct_id = sts.account_id(b3_sess)
+
+    @functools.cached_property
+    def aws_acct_id(self):
+        return sts.account_id(self.b3_sess)
 
     def arn(self, role_name: str):
         return f'arn:aws:iam::{self.aws_acct_id}:role/{role_name}'
@@ -164,13 +170,19 @@ class Roles:
         try:
             attached = self.iam.list_attached_role_policies(RoleName=role_name)
         except self.iam.exceptions.NoSuchEntityException:
+            log.warning('No policies existed for role: %s', role_name)
             return
 
         for idents in attached.get('AttachedPolicies', []):
-            self.iam.detach_role_policy(RoleName=role_name, PolicyArn=idents['PolicyArn'])
+            policy_arn = idents['PolicyArn']
+            self.iam.detach_role_policy(RoleName=role_name, PolicyArn=policy_arn)
+            log.info('Policy deleted: %s', policy_arn)
 
-        with contextlib.suppress(self.iam.exceptions.NoSuchEntityException):
+        try:
             self.iam.delete_role(RoleName=role_name)
+            log.info('Role deleted: %s', role_name)
+        except self.iam.exceptions.NoSuchEntityException:
+            log.info('Role not found: %s', role_name)
 
     def assume_role_policy(self, princpal) -> str:
         """Create policy statement to give AssumeRole to the given Principal"""
@@ -189,7 +201,7 @@ class Roles:
             },
         )
 
-    def ensure_role(self, role_name: str, assume_role_princpal: dict):
+    def ensure_role(self, role_name: str, assume_role_princpal: dict, policy_arns: list[str]):
         """
         Ensure role exists and the AWS principal is allowed to use it.
 
@@ -209,6 +221,13 @@ class Roles:
                 PolicyDocument=asr,
             )
             log.info(f'Role existed, assume role policy updated: {role_name}')
+
+        for arn in policy_arns:
+            self.iam.attach_role_policy(
+                RoleName=role_name,
+                PolicyArn=arn,
+            )
+            log.info('Policy added to role: %s -> %s', arn, role_name)
 
         return self.arn(role_name)
 

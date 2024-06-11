@@ -1,0 +1,15 @@
+services:
+  mu-hello:
+    image: mu-hello:latest
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      # You will have to setup environment variables here if your app is dependent on env vars
+      # in mu.yaml.
+      ENTERPRISE_CAPTAIN: 'Picard and sometimes Riker'
+  # Use this with `docker compose run` if you need to explore the AWS python image
+  lambda-python:
+    image: public.ecr.aws/lambda/python:3.12
+    entrypoint: /bin/bash
+    tty: true
+    stdin_open: true

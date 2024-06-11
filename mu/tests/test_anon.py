@@ -31,6 +31,11 @@ def config():
         image_name='greek-mu-lambda',
         default_env='test',
         action_key='lambda-action',
+        lambda_memory=1024,
+        lambda_timeout=900,
+        policy_arns=(),
+        _environ={},
+        event_rules={},
     )
 
 
@@ -43,13 +48,8 @@ class TestLambda:
     @pytest.fixture(autouse=True)
     def reset_aws(self, roles, policies, repos):
         roles.delete(self.role_name)
-
-        policies.delete(self.logs_policy)
-        policies.delete(self.ecr_repo_policy)
-        policies.reset()
-
+        policies.delete(self.logs_policy, self.ecr_repo_policy)
         repos.delete(self.repo_name, force=True)
-        repos.reset()
 
     def test_provision_role(self, b3_sess, policies, roles, caplog):
         caplog.set_level(logging.INFO)
@@ -138,7 +138,7 @@ class TestLambda:
         }
 
         anon.provision_repo('test', role_arn)
-        log_messages = [rec.message for rec in caplog.records]
+        log_messages = [rec.message for rec in caplog.records if 'Waiting' not in rec.message]
 
         assert log_messages == [
             f'Repository created: {self.repo_name}',

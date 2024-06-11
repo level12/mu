@@ -5,18 +5,14 @@ import pytest
 from mu.libs import iam
 
 
-def delete_role(b3_iam, role_name):
-    attached = b3_iam.list_attached_role_policies(RoleName=role_name)
-    for idents in attached.get('AttachedPolicies', []):
-        b3_iam.detach_role_policy(RoleName=role_name, PolicyArn=idents['PolicyArn'])
-
-    with contextlib.suppress(b3_iam.exceptions.NoSuchEntityException):
-        b3_iam.delete_role(RoleName=role_name)
+@pytest.fixture
+def roles(b3_sess):
+    return iam.Roles(b3_sess)
 
 
 @pytest.fixture
-def delete_policies(b3_iam):
-    iam.Policy.delete_all(b3_iam)
+def policies(b3_sess):
+    return iam.Policies(b3_sess)
 
 
 def is_policy_attached(b3_iam, role_name, policy_name):
@@ -25,18 +21,20 @@ def is_policy_attached(b3_iam, role_name, policy_name):
             return policy['Arn']
 
 
-class TestRolesUtil:
-    @pytest.fixture
-    def ru(self, b3, b3_iam, aws_acct_id) -> iam.RolesUtil:
-        self.role_name = __name__ + self.__class__.__name__
-        delete_role(b3_iam, self.role_name)
+class TestRoles:
+    role_name = 'greek-mu-lambda-test'
+    logs_policy = f'{role_name}-logs'
+    repo_name = 'greek-mu-test'
 
-        ru = iam.RolesUtil(b3, aws_acct_id)
-        ru.ensure_role(self.role_name, {'Service': 'lambda.amazonaws.com'})
-        return ru
+    @pytest.fixture(autouse=True)
+    def reset_aws(self, roles, policies):
+        roles.delete(self.role_name)
+        policies.delete(self.logs_policy)
 
-    def test_ensure_role(self, ru, b3_iam):
-        role = b3_iam.get_role(RoleName=self.role_name)['Role']
+    def test_ensure_role(self, roles):
+        roles.ensure_role(self.role_name, {'Service': 'lambda.amazonaws.com'}, {})
+
+        role = roles.get(self.role_name)
         assert role['AssumeRolePolicyDocument'] == {
             'Statement': [
                 {
@@ -50,29 +48,29 @@ class TestRolesUtil:
         }
 
         # Ensure calling again is ok
-        ru.ensure_role(self.role_name, {'Service': 'lambda.amazonaws.com'})
+        roles.ensure_role(self.role_name, {'Service': 'lambda.amazonaws.com'}, {})
 
         # Ensure that an update works
-        ru.ensure_role(self.role_name, {'Service': 's3.amazonaws.com'})
+        roles.ensure_role(self.role_name, {'Service': 's3.amazonaws.com'}, {})
 
-        role = b3_iam.get_role(RoleName=self.role_name)['Role']
+        role = roles.get(self.role_name)
         statement = role['AssumeRolePolicyDocument']['Statement'][0]
 
         assert statement['Principal'] == {'Service': 's3.amazonaws.com'}
 
-    def test_attach_policy(self, ru, b3_iam, aws_acct_id, delete_policies):
-        logs_policy = iam.policy_doc('logs:PutLogEvents', policy='arn:aws:logs:*:*:*')
+    def test_attach_policy(self, roles, policies: iam.Policies):
+        roles.ensure_role(self.role_name, {'Service': 'lambda.amazonaws.com'}, {})
 
-        ru.attach_policy(self.role_name, 'allow-logs', logs_policy)
+        logs_policy = iam.policy_doc('logs:PutLogEvents', resource='arn:aws:logs:*:*:*')
+        roles.attach_policy(self.role_name, 'logs', logs_policy)
 
-        policy_name = f'{self.role_name}-allow-logs'
-        policy = iam.Policy.get(b3_iam, aws_acct_id, policy_name)
+        policy = policies.get(self.logs_policy)
 
         assert policy.has_role_attachment(self.role_name)
         assert policy.document == logs_policy
 
-        logs_policy = iam.policy_doc('logs:CreateLogsStream', policy='arn:aws:logs:*:*:*')
-        ru.attach_policy(self.role_name, 'allow-logs', logs_policy)
+        logs_policy_doc = iam.policy_doc('logs:CreateLogsStream', resource='arn:aws:logs:*:*:*')
+        roles.attach_policy(self.role_name, 'logs', logs_policy_doc)
 
         # clear cache on .document
         del policy.document

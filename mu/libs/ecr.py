@@ -1,9 +1,11 @@
 import base64
 import enum
+import functools
 import io
 import json
 import logging
 import shutil
+import time
 import zipfile
 
 import arrow
@@ -59,7 +61,11 @@ class Repo:
         return self.rec['repositoryName']
 
     def delete(self, *, force: bool):
-        self.ecr.delete_repository(repositoryName=self.repository_name, force=force)
+        try:
+            self.ecr.delete_repository(repositoryName=self.repository_name, force=force)
+            log.info('Repository deleted: %s', self.name)
+        except self.ecr.exceptions.RepositoryNotEmptyException:
+            log.warning('Repository not empty: %s.  Use force option to remove.', self.name)
 
     def get_policy(self):
         resp = self.ecr.get_repository_policy(repositoryName=self.repository_name)
@@ -161,22 +167,33 @@ class Repos:
     )
 
     def __init__(self, b3_sess: boto3.Session):
-        self.aws_acct_id: str = sts.account_id(b3_sess)
         self.aws_region: str = b3_sess.region_name
 
         self.ecr = b3_sess.client('ecr')
 
+    @functools.cached_property
+    def aws_acct_id(self):
+        return sts.account_id(self.b3_sess)
+
     def arn(self, repo_name: str):
         return f'arn:aws:ecr:{self.aws_region}:{self.aws_acct_id}:repository/{repo_name}'
 
-    def reset(self):
+    def clear(self):
         self.list.cache_clear()
 
-    def get(self, name) -> Repo:
-        return self.list().get(name)
+    def get(self, name, wait=False) -> Repo:
+        if not wait:
+            return self.list().get(name)
+
+        for wait_for in (0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5):
+            repo = self.list().get(name)
+            if repo:
+                return repo
+            time.sleep(wait_for)
+            self.clear()
 
     @lru_cache()
-    def list(self):
+    def list(self) -> dict[str, Repo]:
         repos = self.ecr.describe_repositories()['repositories']
         return {repo['repositoryName']: Repo(self.ecr, repo) for repo in repos}
 
@@ -189,6 +206,8 @@ class Repos:
             repos[name].delete(force=force)
             del repos[name]
 
+        self.clear()
+
     def ensure(self, repo_name: str, role_arn: str) -> Repo:
         try:
             self.ecr.create_repository(
@@ -199,19 +218,28 @@ class Repos:
                 },
             )
             log.info(f'Repository created: {repo_name}')
-            self.list.cache_clear()
+            self.clear()
         except self.ecr.exceptions.RepositoryAlreadyExistsException:
             log.info(f'Repository existed: {repo_name}')
 
         # Give the role the lambda will use permissions on this repo
         principal = {'AWS': role_arn}
         policy = iam.policy_doc(*self.policy_actions, principal=principal)
-        self.ecr.set_repository_policy(
-            repositoryName=repo_name,
-            policyText=json.dumps(policy),
-        )
 
-        return self.get(repo_name)
+        for wait_for in (0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5):
+            try:
+                self.ecr.set_repository_policy(
+                    repositoryName=repo_name,
+                    policyText=json.dumps(policy),
+                )
+                break
+            except self.ecr.exceptions.InvalidParameterException as exc:
+                if 'Invalid repository policy provided' not in str(exc):
+                    raise
+                log.info(f'Waiting {wait_for}s for role to be ready')
+                time.sleep(wait_for)
+
+        return self.get(repo_name, wait=True)
 
     def ecr_tags(self, *, prefix: str = '', limit=20):
         response = self.ecr.describe_images(

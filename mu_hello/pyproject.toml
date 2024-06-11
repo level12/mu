@@ -1,15 +1,3 @@
 [project]
 name = 'mu-Hello'
 version = '0.1'
-
-[tool.mu]
-project-org = 'Starfleet'
-
-[tool.mu.lambda-env]
-FOO = 'bar'
-A_SECRET = 'op://private/mu-hello example/password'
-
-
-[tool.mu.event-rules]
-# https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-rate-expressions.html
-ping-every-min = {rate='1 minute', action='log-example'}

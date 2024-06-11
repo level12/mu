@@ -1,4 +1,6 @@
 import base64
+import contextlib
+import functools
 import io
 import json
 import logging
@@ -7,7 +9,6 @@ import zipfile
 
 import arrow
 import boto3
-import botocore.exceptions
 import docker
 from methodtools import lru_cache  # respects instance lifetimes
 import requests
@@ -21,10 +22,6 @@ log = logging.getLogger(__name__)
 
 
 class Lambda:
-    # Lambda
-    lambda_timeout = 900
-    lambda_memory = 4096
-
     logs_policy: dict = iam.policy_doc(
         'logs:CreateLogGroup',
         'logs:CreateLogStream',
@@ -39,14 +36,22 @@ class Lambda:
         self.ident = config.lambda_name
         self.image_name = config.image_name
         self.lambda_name = config.lambda_name
-        self.aws_acct_id = sts.account_id(b3_sess)
 
         self.lc = b3_sess.client('lambda')
         self.event_client = b3_sess.client('events')
+        self.not_found_exc = (
+            self.lc.exceptions.ResourceNotFoundException,
+            self.event_client.exceptions.ResourceNotFoundException,
+        )
+        self.exists_exc = (self.lc.exceptions.ResourceConflictException,)
         self.docker = docker.from_env()
 
         self.roles = iam.Roles(b3_sess)
         self.repos = ecr.Repos(b3_sess)
+
+    @functools.cached_property
+    def aws_acct_id(self):
+        return sts.account_id(self.b3_sess)
 
     def repo_name(self, env: str):
         return self.config.repo_name(env)
@@ -54,16 +59,22 @@ class Lambda:
     def repo(self, env: str) -> ecr.Repo:
         return self.repos.get(self.repo_name(env))
 
+    def role_name(self, env) -> str:
+        return self.config.lambda_env(env)
+
     def role_arn(self, env) -> str:
-        role_name: str = self.config.lambda_env(env)
-        return self.roles.arn(role_name)
+        return self.roles.arn(self.role_name(env))
 
     def provision_role(self, env: str):
         role_name: str = self.config.lambda_env(env)
         role_arn: str = self.role_arn(env)
 
         # Ensure the role exists and give lambda permission to use it.
-        self.roles.ensure_role(role_name, {'Service': 'lambda.amazonaws.com'})
+        self.roles.ensure_role(
+            role_name,
+            {'Service': 'lambda.amazonaws.com'},
+            self.config.policy_arns,
+        )
 
         # Give permission to create logs
         self.roles.attach_policy(role_name, 'logs', self.logs_policy)
@@ -98,8 +109,8 @@ class Lambda:
         shared_config = {
             'FunctionName': lambda_name,
             'Role': self.role_arn(env_name),
-            'Timeout': self.lambda_timeout,
-            'MemorySize': self.lambda_memory,
+            'Timeout': self.config.lambda_timeout,
+            'MemorySize': self.config.lambda_memory,
             'LoggingConfig': {
                 'LogFormat': 'JSON',
                 'ApplicationLogLevel': 'INFO',
@@ -116,8 +127,8 @@ class Lambda:
                 Code={'ImageUri': image_uri},
                 **shared_config,
             )
-            print(f'Lambda function created: {lambda_name}')
-        except self.lc.exceptions.ResourceConflictException:
+            log.info(f'Lambda function created: {lambda_name}')
+        except self.exists_exc:
             try:
                 response = self.lc.update_function_configuration(**shared_config)
                 self.wait_updated(lambda_name)
@@ -141,12 +152,35 @@ class Lambda:
 
         return response['FunctionArn']
 
-    def delete_func(self, env_name):
-        lambda_name = self.lambda_name(env_name)
-        self.lc.delete_function(
-            FunctionName=lambda_name,
-        )
-        print(f'Lambda function {lambda_name} deleted.')
+    def delete(self, env_name, *, force_repo):
+        lambda_name = self.config.lambda_name_env(env_name)
+
+        try:
+            self.lc.delete_function(
+                FunctionName=lambda_name,
+            )
+            log.info(f'Lambda function deleted: {lambda_name}')
+        except self.not_found_exc:
+            log.warning(f'Lambda function not found: {lambda_name}')
+
+        for rule_ident in self.config.event_rules:
+            rule_name = f'{lambda_name}-{rule_ident}'
+
+            try:
+                self.event_client.remove_targets(Rule=rule_name, Ids=['lambda-func'])
+                log.info(f'Event target deleted: {rule_name}')
+            except self.not_found_exc:
+                log.warning(f'Event target not found: {rule_name}')
+
+            # No exception thrown if the rule doesn't exist.
+            self.event_client.delete_rule(Name=rule_name)
+
+        self.roles.delete(self.role_name(env_name))
+
+        if repo := self.repo(env_name):
+            repo.delete(force=force_repo)
+        else:
+            log.warning(f'Repository not found: {rule_name}')
 
     def event_rules(self, env_name, func_arn):
         lambda_name = self.config.lambda_name_env(env_name)
@@ -181,7 +215,7 @@ class Lambda:
                     Principal='events.amazonaws.com',
                     SourceArn=rule_arn,
                 )
-            except self.lc.exceptions.ResourceConflictException:
+            except self.exists_exc:
                 # TODO: do we need to be smarter about re-creating this?
                 pass
 
@@ -189,11 +223,16 @@ class Lambda:
 
     def deploy(self, target_envs):
         for env in target_envs:
-            # repo: ecr.Repo = self.repo(env)
-            # image_tag: str = repo.push(self.config.image_name)
-            # image_uri = f'{repo.uri}:{image_tag}'
-            # func_arn = self.ensure_func(env, image_uri)
-            func_arn = 'arn:aws:lambda:us-east-2:429829037495:function:starfleet-mu-hello-handler-rsyringmeld'
+            repo: ecr.Repo = self.repo(env)
+            if not repo:
+                log.error(
+                    'Repo not found: %s.  Do you need to provision first?',
+                    self.repo_name(env),
+                )
+                return
+            image_tag: str = repo.push(self.config.image_name)
+            image_uri = f'{repo.uri}:{image_tag}'
+            func_arn = self.ensure_func(env, image_uri)
             log.info('Function arn: %s', func_arn)
             self.event_rules(env, func_arn)
 
@@ -210,8 +249,8 @@ class Lambda:
         waiter = self.lc.get_waiter('function_active_v2')
         waiter.wait(FunctionName=lambda_name)
 
-    def invoke(self, env_name: str, action: str):
-        event = {self.config.action_key: action}
+    def invoke(self, env_name: str, action: str, action_args: list):
+        event = {self.config.action_key: action, 'action-args': action_args}
         response = self.lc.invoke(
             FunctionName=self.config.lambda_name_env(env_name),
             # TODO: maybe enable 'Event' for InvocationType for async invocation
@@ -221,10 +260,12 @@ class Lambda:
 
         return json.loads(response['Payload'].read())
 
-    def invoke_rei(self, host, action: str):
+    def invoke_rei(self, host, action: str, action_args: list):
+        event = {self.config.action_key: action, 'action-args': action_args}
+
         url = f'http://{host}/2015-03-31/functions/function/invocations'
-        event = {self.config.action_key: action}
         resp = requests.post(url, json=event)
+
         return resp.json()
 
     def logs(self, env_name: str, limit: int, from_head: bool):
@@ -258,20 +299,23 @@ class Lambda:
             # TODO: can we stream (i.e. follow) them?
             # TODO: can format out the output better.  See misc/lambda-logs-example.txt
             for event in log_events['events']:
-                rec: dict = json.loads(event['message'])
-                rec_type = rec.get('type')
-                if rec_type is None:
-                    print(rec['timestamp'], rec['level'], rec['logger'], rec['message'])
-                elif rec_type == 'platform.start':
-                    print(rec['time'], rec_type, 'version:', rec['record']['version'])
-                elif rec_type == 'platform.report':
-                    record = rec['record']
-                    print(rec['time'], rec_type)
-                    print('   ', 'status:', record['status'])
-                    for metric, value in record['metrics'].items():
-                        print('   ', f'{metric}:', value)
-                else:
-                    print(rec)
+                try:
+                    rec: dict = json.loads(event['message'])
+                    rec_type = rec.get('type')
+                    if rec_type is None:
+                        print(rec['timestamp'], rec['level'], rec['logger'], rec['message'])
+                    elif rec_type == 'platform.start':
+                        print(rec['time'], rec_type, 'version:', rec['record']['version'])
+                    elif rec_type == 'platform.report':
+                        record = rec['record']
+                        print(rec['time'], rec_type)
+                        print('   ', 'status:', record['status'])
+                        for metric, value in record['metrics'].items():
+                            print('   ', f'{metric}:', value)
+                    else:
+                        print(rec)
+                except json.JSONDecodeError:
+                    print(event)
         else:
             log.info(f'No log streams found for: {lambda_name}')
 

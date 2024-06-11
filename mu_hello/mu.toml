@@ -1,0 +1,25 @@
+# Put under [tool.mu] in pyproject.toml
+project-org = 'Starfleet' # required
+
+lambda_memory = 2048  # MB; New account limit is 3008 MB
+lambda_timeout = 60  # seconds, max: 900
+
+# Give the lambda permissions beyond the basics
+# policy_arns = ['arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess']
+
+# Set environment values for the lambda that will apply when its running.
+[lambda-env]  # [tool.mu.lambda-env] in pyproject.toml
+ENTERPRISE_CAPTAIN = 'Picard and sometimes Riker'
+# Support is built in for one password secrets using the `op` cli tool
+# TRANSPORTER_PASS = 'op://starship-enterprise/Cargo Bay Transporter/password'
+
+
+[tool.mu.event-rules.sync]
+# action: the method on your mu.ActionHandler subclass that should be called.
+# mu_hello.py has additional commentary on actions.  "ping" is an action provided by
+# mu.ActionHandler and simply reponds with "pong."
+action='ping'
+# https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-rate-expressions.html
+rate = '1 minute'
+# enabled is the default
+# state='disabled'

@@ -49,10 +49,17 @@ def cli(ctx, quiet, verbose):
 def auth_check(ctx):
     """Check AWS auth by displaying account info"""
     config: Config = ctx.obj
-    sess = auth.b3_sess(config)
-    acct_id: str = sts.account_id(sess)
+    b3_sess = auth.b3_sess(config.aws_region)
+    acct_id: str = sts.account_id(b3_sess)
     print('Account:', acct_id)
-    print('Region:', sess.region_name)
+    print('Region:', b3_sess.region_name)
+
+    orgc = b3_sess.client('organizations')
+    try:
+        org_info = orgc.describe_organization()
+        print('Organization owner:', org_info['Organization']['MasterAccountEmail'])
+    except orgc.exceptions.AWSOrganizationsNotInUseException:
+        print('Organization: none')
 
 
 @cli.command()
@@ -90,6 +97,17 @@ def deploy(ctx, envs: list[str], delete_first=False):
 
 
 @cli.command()
+@click.argument('target_env')
+@click.option('--force-repo', is_flag=True)
+@click.pass_context
+def delete(ctx, target_env: str, force_repo: bool):
+    """Delete lambda and optionally related infra"""
+    config: Config = ctx.obj
+    lamb = Lambda(config)
+    lamb.delete(target_env, force_repo=force_repo)
+
+
+@cli.command()
 @click.argument('target_env', required=False)
 @click.pass_context
 def build(ctx, target_env: str | None):
@@ -105,21 +123,23 @@ def build(ctx, target_env: str | None):
 
 
 @cli.command()
-@click.argument('target_env')
+@click.argument('target_env', default='default')
 @click.argument('action', default='diagnostics')
+@click.argument('action_args', nargs=-1)
 @click.option('--host', default='localhost:8080')
+@click.option('--local', is_flag=True)
 @click.pass_context
-def invoke(ctx, target_env: str, action: str, host: str):
+def invoke(ctx, target_env: str, action: str, host: str, action_args: list, local: bool):
     """Invoke lambda with diagnostics or given action"""
 
     config: Config = ctx.obj
 
     lamb = Lambda(config)
-    if target_env == 'local':
-        result = lamb.invoke_rei(host, action)
+    if local:
+        result = lamb.invoke_rei(host, action, action_args)
     else:
         target_env = config.default_env if target_env == 'default' else target_env
-        result = lamb.invoke(target_env, action)
+        result = lamb.invoke(target_env, action, action_args)
 
     pprint(result)
 

@@ -22,13 +22,21 @@ def roles(b3_sess):
 
 @pytest.fixture
 def role_arn(roles):
-    return roles.ensure_role(TestECR.role_name, {'Service': 'lambda.amazonaws.com'})
+    return roles.ensure_role(TestECR.role_name, {'Service': 'lambda.amazonaws.com'}, ())
 
 
 @pytest.fixture(scope='module')
 def hw_tag():
+    docker_ensure('hello-world')
     created = ecr.LocalImage('hello-world').created_utc()
     return f'hello-world-{created}'
+
+
+@pytest.fixture(scope='module')
+def bb_tag():
+    docker_ensure('busybox')
+    created = ecr.LocalImage('busybox').created_utc()
+    return f'busybox-{created}'
 
 
 def docker_ensure(img):
@@ -46,18 +54,14 @@ class TestECR:
 
     @pytest.fixture(autouse=True, scope='class')
     def prep(self, repos):
-        docker_ensure('hello-world')
-        docker_ensure('busybox')
-
         repos.delete(self.repo_name, force=True)
-        repos.reset()
 
     def test_tag_local(self, repos: ecr.Repos, role_arn: str, hw_tag: str):
         repo = repos.ensure(self.repo_name, role_arn)
         tag = repo.tag_local('hello-world')
         assert tag == hw_tag
 
-    def test_push(self, repos: ecr.Repos, role_arn: str, hw_tag: str):
+    def test_push(self, repos: ecr.Repos, role_arn: str, hw_tag: str, bb_tag: str):
         repo = repos.ensure(self.repo_name, role_arn)
 
         repo.push('hello-world')
@@ -68,12 +72,12 @@ class TestECR:
         repo.push('busybox')
         assert repo.tags() == [
             'hello-world-foo',
-            'hello-world-2023-05-02T16.49.27',
-            'busybox-2024-01-17T21.49.12',
+            hw_tag,
+            bb_tag,
         ]
 
         assert repo.tags(prefix='hello-world') == [
             'hello-world-foo',
-            'hello-world-2023-05-02T16.49.27',
+            hw_tag,
         ]
         assert repo.latest_tag('hello-world') == 'hello-world-foo'

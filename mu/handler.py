@@ -8,6 +8,11 @@ log = logging.getLogger(__name__)
 class ActionHandler:
     # TODO: create method that will list all possible actions
 
+    @classmethod
+    def on_event(cls, event, context):
+        """The entry point for AWS lambda"""
+        return cls.on_action('do-action', event, context)
+
     @staticmethod
     def ping(event, context):
         return 'pong'
