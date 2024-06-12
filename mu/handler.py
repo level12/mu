@@ -1,16 +1,25 @@
 import logging
 import os
 
+from wsgi_adapter import LambdaWSGIHandler
+
 
 log = logging.getLogger(__name__)
 
 
 class ActionHandler:
     # TODO: create method that will list all possible actions
+    wsgi_app = None
 
     @classmethod
     def on_event(cls, event, context):
         """The entry point for AWS lambda"""
+
+        keys = set(event.keys())
+        wsgi_keys = {'headers', 'requestContext', 'routeKey', 'rawPath'}
+        if cls.wsgi_app and wsgi_keys.issubset(keys):
+            cls.wsgi(event, context)
+
         return cls.on_action('do-action', event, context)
 
     @staticmethod
@@ -64,6 +73,7 @@ class ActionHandler:
         if action is None:
             msg = f'Action key "{action_key}" not found in event'
             log.error(msg)
+            log.info(event)
             return {
                 'event': event,
                 'error': msg,
@@ -76,3 +86,8 @@ class ActionHandler:
             return action_method(event, context)
 
         return cls._unknown_action(action, event, context)
+
+    @classmethod
+    def wsgi(cls, event, context):
+        handler = LambdaWSGIHandler()
+        return handler(event, context)

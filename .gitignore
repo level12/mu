@@ -11,3 +11,4 @@ coverage.xml
 .ci/test-reports
 dist
 abbr.fish
+notes.md

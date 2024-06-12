@@ -1,15 +1,15 @@
 arrow==1.3.0 \
     --hash=sha256:c728b120ebc00eb84e01882a6f5e7927a53960aa990ce7dd2b10f39005a67f80 \
     --hash=sha256:d4540617648cb5f895730f1ad8c82a65f2dad0166f57b75f3ca54759c4d67a85
-    # via -r /home/rsyring/projects/mu-pkg/requirements/base.in
+    # via -r requirements/base.in
 blazeutils==0.7.0 \
     --hash=sha256:3ce3f95f44a171443f9fef69bbccc159954f7cdb83ed3aebfe97f7ea1a52eb88 \
     --hash=sha256:5075f2f277e0c5f11ad18cfc03493385811fc99a4cbceb23c9eeb3699b5d5979
-    # via -r /home/rsyring/projects/mu-pkg/requirements/base.in
+    # via -r requirements/base.in
 boto3==1.34.53 \
     --hash=sha256:340c73f57fcca6f503403e2e13a0a4ad44bec218feee2e0896be612324394afd \
     --hash=sha256:cd30261a782824ce543a628ae524480abb4ca6ab4e4a2631477e48baed43b5f2
-    # via -r /home/rsyring/projects/mu-pkg/requirements/base.in
+    # via -r requirements/base.in
 botocore==1.34.53 \
     --hash=sha256:3d243781e994dfc5b20036d9fb92672bfaef4dbe388eaa79dae6440ea56c53eb \
     --hash=sha256:cbbcaddc35738d32df55d26ed5561cf3fa32751a6b22e7e342be87b5e3f55eec
@@ -169,11 +169,11 @@ charset-normalizer==3.3.2 \
 click==8.1.7 \
     --hash=sha256:ae74fb96c20a0277a1d615f1e4d73c8414f5a98db8b799a7931d1582f3390c28 \
     --hash=sha256:ca9853ad459e787e2192211578cc907e7594e294c7ccc834310722b41b9ca6de
-    # via -r /home/rsyring/projects/mu-pkg/requirements/base.in
+    # via -r requirements/base.in
 colorlog==6.8.2 \
     --hash=sha256:3e3e079a41feb5a1b64f978b5ea4f46040a94f11f0e8bbb8261e3dbbeca64d44 \
     --hash=sha256:4dcbb62368e2800cb3c5abd348da7e53f6c362dda502ec27c560b2e58a66bd33
-    # via -r /home/rsyring/projects/mu-pkg/requirements/base.in
+    # via -r requirements/base.in
 cryptography==42.0.5 \
     --hash=sha256:0270572b8bd2c833c3981724b8ee9747b3ec96f699a9665470018594301439ee \
     --hash=sha256:111a0d8553afcf8eb02a4fea6ca4f59d48ddb34497aa8706a6cf536f1a5ec576 \
@@ -207,11 +207,11 @@ cryptography==42.0.5 \
     --hash=sha256:e807b3188f9eb0eaa7bbb579b462c5ace579f1cedb28107ce8b48a9f7ad3679e \
     --hash=sha256:f12764b8fffc7a123f641d7d049d382b73f96a34117e0b637b80643169cec8ac \
     --hash=sha256:f8837fe1d6ac4a8052a9a8ddab256bc006242696f03368a4009be7ee3075cdb7
-    # via -r /home/rsyring/projects/mu-pkg/requirements/base.in
+    # via -r requirements/base.in
 docker==7.0.0 \
     --hash=sha256:12ba681f2777a0ad28ffbcc846a69c31b4dfd9752b47eb425a274ee269c5e14b \
     --hash=sha256:323736fb92cd9418fc5e7133bc953e11a9da04f4483f828b527db553f1e7e5a3
-    # via -r /home/rsyring/projects/mu-pkg/requirements/base.in
+    # via -r requirements/base.in
 idna==3.6 \
     --hash=sha256:9ecdbbd083b06798ae1e86adcbfe8ab1479cf864e4ee30fe4e46a003d12491ca \
     --hash=sha256:c05567e9c24a6b9faaa835c4821bad0590fbb9d5779e7caa6e1cc4978e7eb24f
@@ -222,9 +222,13 @@ jmespath==1.0.1 \
     # via
     #   boto3
     #   botocore
+lambda-wsgi-adapter==0.1.1 \
+    --hash=sha256:7ee7d15182e16fa7e65e9847370c9f4c25e00d80eb4978894327e1d82470971e \
+    --hash=sha256:814c84632608ff2d89518fe91914928665c60063985b77ad8fefc059fb888fcd
+    # via -r requirements/base.in
 methodtools==0.4.7 \
     --hash=sha256:e213439dd64cfe60213f7015da6efe5dd4003fd89376db3baa09fe13ec2bb0ba
-    # via -r /home/rsyring/projects/mu-pkg/requirements/base.in
+    # via -r requirements/base.in
 packaging==23.2 \
     --hash=sha256:048fb0e9405036518eaaf48a55953c750c11e1a1b68e0dd1a9d62ed0c092cfc5 \
     --hash=sha256:8c491190033a9af7e1d931d0b5dacc2ef47509b34dd0de67ed209b5203fc88c7
@@ -243,7 +247,7 @@ requests==2.31.0 \
     --hash=sha256:58cd2187c01e70e6e26505bca751777aa9f2ee0b7f4300988b709f44e013003f \
     --hash=sha256:942c5a758f98d790eaed1a29cb6eefc7ffb0d1cf7af05c3d2791656dbd6ad1e1
     # via
-    #   -r /home/rsyring/projects/mu-pkg/requirements/base.in
+    #   -r requirements/base.in
     #   docker
 s3transfer==0.10.0 \
     --hash=sha256:3cdb40f5cfa6966e812209d0994f2a4709b561c88e90cf00c2696d2df4e56b2e \

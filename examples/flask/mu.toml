@@ -1,0 +1,2 @@
+# Put under [tool.mu] in pyproject.toml
+project-org = 'Starfleet' # required

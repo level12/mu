@@ -61,6 +61,9 @@ class Config:
     def repo_name(self, env_name: str):
         return self.project_env(env_name)
 
+    def api_name(self, env_name: str):
+        return self.project_env(env_name)
+
     def resolve_env(self, env_val: str):
         if not env_val.startswith('op://'):
             return env_val

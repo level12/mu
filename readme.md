@@ -19,40 +19,107 @@ It also needs
 An example application with these required elements can be found at:
 [mu_hello](https://github.com/level12/mu/tree/master/mu_hello)
 
+
 ## Usage: Local
 
-These commands all work on your local system:
+Let's demonstrate usage with [`mu_hello`](https://github.com/level12/mu/tree/master/mu_hello).
+Assuming you have copied that source locally and are in the directory:
 
-```sh
+```shell
 $ mu build
 $ docker compose up mu-hello
 
-# In a different shell
+# Watch current shell for log output and, in a new shell, run:
 $ mu invoke --local
+```
 
+That command should have output like:
+```
+{'context': {'aws_request_id': '83fd7a58-5f6d-45e1-8092-b509c4f60898',
+             'function_name': 'test_function',
+             'function_version': '$LATEST',
+             'invoked_function_arn': 'arn:aws:lambda:us-east-1:012345678912:function:test_function',
+             'log_group_name': '/aws/lambda/Functions',
+             'log_stream_name': '$LATEST',
+             'memory_limit_in_mb': '3008',
+             'remaining_time': 299967},
+ 'error': None,
+ 'event': {'action-args': [], 'do-action': 'diagnostics'}}
+```
+
+And the first shell should have output like:
+
+```
+11 Jun 2024 19:28:28,809 [INFO] (rapid) INIT START(type: on-demand, phase: init)
+...
+11 Jun 2024 19:28:28,843 [INFO] (rapid) INVOKE RTDONE(status: success, produced bytes: 0, duration: 0.724000ms)
+```
+
+Now invoke the hello command:
+
+```sh
+$ mu invoke --local hello
+'Hello World from mu_hello'
+
+# with arguments
+$ mu invoke --local hello 'Capt. Picard'
+'Hello Capt. Picard from mu_Hello'
+
+# call a Click command
+$ mu invoke --local cli
+47
+
+# And you should see the following in the docker shell
+'Hello Alpha Quadrant from mu_Hello'
+```
 
 ## Usage: AWS
 
 
-This is assuming you are in the `mu_hello` directory and have AWS auth setup.  `aws sts
+This is assuming you are (still) in the `mu_hello` directory and have AWS auth setup.  `aws sts
 get-caller-identity` should be working.
 
-Verify AWS auth:
-
 ```sh
+Verify AWS auth:
 $ mu auth-check
 Account: 429812345678
 Region: us-east-2
 Organization owner: you@example.com
 ```
 
-Ensure IAM and ECR infra. is in place:
+Note that mu has the concept of an "environment" which is used when naming objects to support
+provision and deployment for beta, prod, etc.  There is a default environment that is part of the
+mu config and defaults to `you.your-host`.
+
 
 ```sh
-$ mu provision
-Account: 429812345678
-Region: us-east-2
-Organization owner: you@example.com
+# Ensure IAM and ECR infra. is in place for the enterprise environment
+$ mu provision enterprise
+    info  Role created: starfleet-mu-hello-lambda-enterprise
+    info  Policy created: starfleet-mu-hello-lambda-enterprise-logs
+    info  Policy created: starfleet-mu-hello-lambda-enterprise-ecr-repo
+    info  Repository created: starfleet-mu-hello-enterprise
+    info  Waiting 0.1s for role to be ready
+    info  Waiting 0.25s for role to be ready
+    ...[snip]...
+    info  Provision finished for env: enterprise
+
+# Build and push image, setup aws lambda
+$ mu deploy --build enterprise
+    info  docker compose build --pull
+[+] Building 0.3s (10/10)
+...[snip docker output]...
+    info  Tagged, pushing...
+    info  Tagged and pushed: 429829037495.dkr.ecr.us-east-2.amazonaws.com/starfleet-mu-hello-enterprise mu-hello-2024-06-11T21.31.09
+    info  Deploying: 429829037495.dkr.ecr.us-east-2.amazonaws.com/starfleet-mu-hello-enterprise:mu-hello-2024-06-11T21.31.09
+    info  Lambda function created: starfleet-mu-hello-handler-enterprise
+    info  Function arn: arn:aws:lambda:us-east-2:429829037495:function:starfleet-mu-hello-handler-enterprise
+    info  Waiting for lambda to be updated: starfleet-mu-hello-handler-enterprise
+
+
+$ mu invoke --env enterprise
+{'context': {'aws_request_id': 'cc44e34f-b7f1-4f2a-a314-e4dd2513b229'
+...[snip]...
 ```
 
 

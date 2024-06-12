@@ -16,10 +16,34 @@ from methodtools import lru_cache
 import requests
 
 from ..config import Config
-from . import iam, sts
+from . import iam, sts, utils
 
 
 log = logging.getLogger(__name__)
+
+
+class RetryingSetRepoPolicy(utils.RetryingAction):
+    """
+    If a role was recently created, AWS may not have the role ready when we try to set the policy.
+    This class will catch that error and retry assuming AWS will get us there eventually.
+    """
+
+    # Too bad the error isn't more specific so we could be sure its the role that's problematic
+    # but its a generic error message.
+    exc_contains = 'Invalid repository policy provided'
+    waiting_for = 'role to be ready'
+
+    @classmethod
+    def act(cls, ecr, repo_name: str, policy_text: str):
+        return ecr.set_repository_policy(
+            repositoryName=repo_name,
+            policyText=policy_text,
+        )
+
+    @classmethod
+    def run(cls, ecr, *args):
+        cls.exc_type = ecr.exceptions.InvalidParameterException
+        super().run(ecr, *args)
 
 
 class LocalImage:
@@ -125,8 +149,8 @@ class Repo:
         repo_tag = self.latest_tag(image_name)
 
         if repo_tag == tag:
-            log.info('Repo name: %s', self.name)
-            log.info('Tag: %s', repo_tag)
+            # log.info('Repo name: %s', self.name)
+            # log.info('Tag: %s', repo_tag)
             log.warning(
                 'Local and ECR tags match, not pushing image.'
                 "  If that's unexpected, you may need to build first.",
@@ -168,7 +192,7 @@ class Repos:
 
     def __init__(self, b3_sess: boto3.Session):
         self.aws_region: str = b3_sess.region_name
-
+        self.b3_sess = b3_sess
         self.ecr = b3_sess.client('ecr')
 
     @functools.cached_property
@@ -226,18 +250,7 @@ class Repos:
         principal = {'AWS': role_arn}
         policy = iam.policy_doc(*self.policy_actions, principal=principal)
 
-        for wait_for in (0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5):
-            try:
-                self.ecr.set_repository_policy(
-                    repositoryName=repo_name,
-                    policyText=json.dumps(policy),
-                )
-                break
-            except self.ecr.exceptions.InvalidParameterException as exc:
-                if 'Invalid repository policy provided' not in str(exc):
-                    raise
-                log.info(f'Waiting {wait_for}s for role to be ready')
-                time.sleep(wait_for)
+        RetryingSetRepoPolicy.run(self.ecr, repo_name, json.dumps(policy))
 
         return self.get(repo_name, wait=True)
 

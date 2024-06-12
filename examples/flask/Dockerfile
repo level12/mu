@@ -1,16 +1,20 @@
-# mu-hello runs locally and on production lambda
-FROM public.ecr.aws/lambda/python:3.12 as mu-hello
+FROM public.ecr.aws/lambda/python:3.12
 
-RUN pip install --break-system-packages -U pip uv
+WORKDIR ${LAMBDA_TASK_ROOT}
 
 # Install the apps's dependencies.  This should include mu.
 COPY requirements.txt /tmp/requirements.txt
+
+# Its deliberate that this is below requirements.  It means these packages will
+# get updated every time our apps' packages get updated.
+RUN pip install --break-system-packages -U pip uv
+
 RUN uv pip install --python=/var/lang/bin/python --no-cache-dir -r /tmp/requirements.txt
 
 # Now everything to do with the app
-COPY mu_hello.py ${LAMBDA_TASK_ROOT}/mu_hello.py
+COPY app.py ./
 
 # Uncomment this to get the CMD to be updated in the image.
 # RUN echo 'd' > /tmp/annoying.txt
 
-CMD ["mu_hello.lambda_entry"]
+CMD ["app.lambda_entry"]

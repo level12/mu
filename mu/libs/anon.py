@@ -1,21 +1,14 @@
-import base64
-import contextlib
 import functools
-import io
 import json
 import logging
-import shutil
-import zipfile
 
-import arrow
 import boto3
 import docker
-from methodtools import lru_cache  # respects instance lifetimes
 import requests
 
 from mu.config import Config
 
-from . import auth, ecr, iam, sts
+from . import api_gateway, auth, ecr, iam, sts
 
 
 log = logging.getLogger(__name__)
@@ -48,10 +41,15 @@ class Lambda:
 
         self.roles = iam.Roles(b3_sess)
         self.repos = ecr.Repos(b3_sess)
+        self.apis = api_gateway.APIs(b3_sess)
 
     @functools.cached_property
     def aws_acct_id(self):
         return sts.account_id(self.b3_sess)
+
+    @property
+    def aws_region(self):
+        return self.b3_sess.region_name
 
     def repo_name(self, env: str):
         return self.config.repo_name(env)
@@ -103,7 +101,7 @@ class Lambda:
     def ensure_func(self, env_name: str, image_uri: str):
         lambda_name = self.config.lambda_name_env(env_name)
 
-        log.info('Deploying: %s', image_uri)
+        log.info('Deploying lambda function')
 
         # TODO: should get these values from the config
         shared_config = {
@@ -127,7 +125,7 @@ class Lambda:
                 Code={'ImageUri': image_uri},
                 **shared_config,
             )
-            log.info(f'Lambda function created: {lambda_name}')
+            log.info('Lambda function created')
         except self.exists_exc:
             try:
                 response = self.lc.update_function_configuration(**shared_config)
@@ -138,7 +136,7 @@ class Lambda:
                     ImageUri=image_uri,
                 )
 
-                log.info(f'Lambda function updated: {lambda_name}')
+                log.info('Lambda function updated')
 
             except self.lc.exceptions.InvalidParameterValueException as e:
                 # TODO: don't need this if not doing zips
@@ -161,7 +159,7 @@ class Lambda:
             )
             log.info(f'Lambda function deleted: {lambda_name}')
         except self.not_found_exc:
-            log.warning(f'Lambda function not found: {lambda_name}')
+            log.info(f'Lambda function not found: {lambda_name}')
 
         for rule_ident in self.config.event_rules:
             rule_name = f'{lambda_name}-{rule_ident}'
@@ -170,17 +168,18 @@ class Lambda:
                 self.event_client.remove_targets(Rule=rule_name, Ids=['lambda-func'])
                 log.info(f'Event target deleted: {rule_name}')
             except self.not_found_exc:
-                log.warning(f'Event target not found: {rule_name}')
+                log.info(f'Event target not found: {rule_name}')
 
             # No exception thrown if the rule doesn't exist.
             self.event_client.delete_rule(Name=rule_name)
 
         self.roles.delete(self.role_name(env_name))
+        self.apis.delete(self.config.api_name(env_name))
 
         if repo := self.repo(env_name):
             repo.delete(force=force_repo)
         else:
-            log.warning(f'Repository not found: {rule_name}')
+            log.info(f'Repository not found: {self.repo_name(env_name)}')
 
     def event_rules(self, env_name, func_arn):
         lambda_name = self.config.lambda_name_env(env_name)
@@ -221,26 +220,57 @@ class Lambda:
 
             log.info('Rule arn: %s', rule_arn)
 
-    def deploy(self, target_envs):
-        for env in target_envs:
-            repo: ecr.Repo = self.repo(env)
-            if not repo:
-                log.error(
-                    'Repo not found: %s.  Do you need to provision first?',
-                    self.repo_name(env),
-                )
-                return
-            image_tag: str = repo.push(self.config.image_name)
-            image_uri = f'{repo.uri}:{image_tag}'
-            func_arn = self.ensure_func(env, image_uri)
-            log.info('Function arn: %s', func_arn)
-            self.event_rules(env, func_arn)
+    def api_gateway(self, env: str, func_arn: str) -> api_gateway.APIEndpoint:
+        api: api_gateway.APIEndpoint = self.apis.ensure(self.config.api_name(env), func_arn)
+        source_arn = f'arn:aws:execute-api:{self.aws_region}:{self.aws_acct_id}:{api.api_id}/*'
+
+        try:  # noqa: SIM105
+            self.lc.add_permission(
+                FunctionName=func_arn,
+                StatementId='HttpApiInvoke',
+                Action='lambda:InvokeFunction',
+                Principal='apigateway.amazonaws.com',
+                SourceArn=source_arn,
+            )
+        except self.exists_exc:
+            # TODO: do we need to be smarter about this case?
+            pass
+
+        return api
+
+    def _deploy(self, env):
+        repo: ecr.Repo = self.repo(env)
+        if not repo:
+            log.error(
+                'Repo not found: %s.  Do you need to provision first?',
+                self.repo_name(env),
+            )
+            return
+
+        image_tag: str = repo.push(self.config.image_name)
+        image_uri = f'{repo.uri}:{image_tag}'
+        func_arn = self.ensure_func(env, image_uri)
+
+        self.event_rules(env, func_arn)
+        api = self.api_gateway(env, func_arn)
 
         lambda_name = self.config.lambda_name_env(env)
+        # The newly deployed app takes a bit to become active.  Wait for it to avoid prompt
+        # testing of the newly deployed changes from getting an older not-updated lambda.  Not fun.
         self.wait_updated(lambda_name)
 
+        spacing = '\n' + ' ' * 13
+        log.info(f'Repo name:{spacing}%s', repo.name)
+        log.info(f'Image URI:{spacing}%s', image_uri)
+        log.info(f'Function name:{spacing}%s', lambda_name)
+        log.info(f'API gateway endpoint:{spacing}%s', api.api_endpoint)
+
+    def deploy(self, target_envs):
+        for env in target_envs:
+            self._deploy(env)
+
     def wait_updated(self, lambda_name: str):
-        log.info('Waiting for lambda to be updated: %s', lambda_name)
+        log.info('Waiting for lambda to be updated')
         waiter = self.lc.get_waiter('function_updated_v2')
         waiter.wait(FunctionName=lambda_name)
 

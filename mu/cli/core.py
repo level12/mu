@@ -7,7 +7,7 @@ import colorlog
 
 import mu.config
 from mu.config import Config
-from mu.libs import auth, sts, utils
+from mu.libs import api_gateway, auth, sts, utils
 from mu.libs.anon import Lambda
 
 
@@ -85,12 +85,15 @@ def provision(ctx, envs: list[str]):
 
 @cli.command()
 @click.argument('envs', nargs=-1)
-@click.option('--delete-first', is_flag=True)
+@click.option('--build', is_flag=True)
 @click.pass_context
-def deploy(ctx, envs: list[str], delete_first=False):
+def deploy(ctx, envs: list[str], build: bool):
     """Deploy local image to ecr, update lambda"""
     config: Config = ctx.obj
     envs = envs or [config.default_env]
+
+    if build:
+        utils.compose_build()
 
     lamb = Lambda(config)
     lamb.deploy(envs)
@@ -108,24 +111,15 @@ def delete(ctx, target_env: str, force_repo: bool):
 
 
 @cli.command()
-@click.argument('target_env', required=False)
-@click.pass_context
-def build(ctx, target_env: str | None):
+def build():
     """Build lambda container with docker compose"""
-    config: Config = ctx.obj
-    utils.sub_run(
-        'docker',
-        'compose',
-        'build',
-        '--pull',
-        env={'MU_LAMBDA_NAME': config.lambda_env(target_env)},
-    )
+    utils.compose_build()
 
 
 @cli.command()
-@click.argument('target_env', default='default')
 @click.argument('action', default='diagnostics')
 @click.argument('action_args', nargs=-1)
+@click.option('--env', 'target_env')
 @click.option('--host', default='localhost:8080')
 @click.option('--local', is_flag=True)
 @click.pass_context
@@ -138,7 +132,7 @@ def invoke(ctx, target_env: str, action: str, host: str, action_args: list, loca
     if local:
         result = lamb.invoke_rei(host, action, action_args)
     else:
-        target_env = config.default_env if target_env == 'default' else target_env
+        target_env = config.default_env if target_env is None else target_env
         result = lamb.invoke(target_env, action, action_args)
 
     pprint(result)
@@ -155,3 +149,18 @@ def lambda_logs(ctx, target_env: str, limit: int, reverse: bool):
 
     lamb = Lambda(config)
     lamb.logs(target_env, limit, reverse)
+
+
+@cli.command()
+@click.pass_context
+@click.option('--verbose', is_flag=True)
+def apis(ctx: click.Context, verbose: bool):
+    """List api gateways in active account"""
+    config: Config = ctx.obj
+
+    apis = api_gateway.APIs(auth.b3_sess(config.aws_region))
+    for ag in apis.list():
+        if verbose:
+            print(ag.name, ag, sep='\n')
+        else:
+            print(ag.name, ag.created_date, ag.api_id)

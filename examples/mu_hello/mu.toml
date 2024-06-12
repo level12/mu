@@ -22,4 +22,4 @@ action='ping'
 # https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-rate-expressions.html
 rate = '1 minute'
 # enabled is the default
-# state='disabled'
+state='disabled'

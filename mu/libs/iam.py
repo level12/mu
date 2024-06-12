@@ -49,8 +49,7 @@ class Policy:
         raise AttributeError(item)
 
     @classmethod
-    def get(cls, iam, acct_id, name):
-        arn = f'arn:aws:iam::{acct_id}:policy/{name}'
+    def get(cls, iam, arn):
         return cls(iam, iam.get_policy(PolicyArn=arn)['Policy'])
 
     @classmethod
@@ -153,6 +152,7 @@ class Policies:
 
 class Roles:
     def __init__(self, b3_sess):
+        self.b3_sess = b3_sess
         self.iam = b3_sess.client('iam')
         self.policies = Policies(b3_sess)
 
@@ -170,12 +170,13 @@ class Roles:
         try:
             attached = self.iam.list_attached_role_policies(RoleName=role_name)
         except self.iam.exceptions.NoSuchEntityException:
-            log.warning('No policies existed for role: %s', role_name)
+            log.info('No policies existed for role: %s', role_name)
             return
 
         for idents in attached.get('AttachedPolicies', []):
             policy_arn = idents['PolicyArn']
-            self.iam.detach_role_policy(RoleName=role_name, PolicyArn=policy_arn)
+            policy = Policy.get(self.iam, policy_arn)
+            policy.delete()
             log.info('Policy deleted: %s', policy_arn)
 
         try:

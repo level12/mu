@@ -8,6 +8,7 @@ import platform
 import shlex
 import subprocess
 import tempfile
+import time
 import uuid
 
 from cryptography.fernet import Fernet
@@ -77,3 +78,34 @@ def print_dict(d, indent=0):
             print_dict(value, indent + 1)
         else:
             print('    ' * indent, f'{key}:', value)
+
+
+class RetryingAction:
+    wait_seq = (0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2.5, 3, 5, None)
+    exc_type: Exception = None
+    exc_contains: str = ''
+    waiting_for: str = ''
+
+    @classmethod
+    def act(cls, *args, **kwargs):
+        raise NotImplementedError
+
+    @classmethod
+    def run(cls, *args, **kwargs):
+        for wait_for in cls.wait_seq:
+            try:
+                return cls.act(*args, **kwargs)
+            except cls.exc_type as exc:
+                if cls.exc_contains not in str(exc) or wait_for is None:
+                    raise
+                log.info(f'Waiting {wait_for}s for {cls.waiting_for}')
+                time.sleep(wait_for)
+
+
+def compose_build():
+    sub_run(
+        'docker',
+        'compose',
+        'build',
+        '--pull',
+    )
