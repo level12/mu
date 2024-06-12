@@ -8,7 +8,7 @@ import colorlog
 import mu.config
 from mu.config import Config
 from mu.libs import api_gateway, auth, sts, utils
-from mu.libs.anon import Lambda
+from mu.libs.lamb import Lambda
 
 
 log = logging.getLogger()

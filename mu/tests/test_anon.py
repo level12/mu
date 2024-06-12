@@ -4,7 +4,7 @@ import pytest
 
 import mu.config
 from mu.libs import ecr, iam
-from mu.libs.anon import Lambda
+from mu.libs.lamb import Lambda
 
 
 @pytest.fixture

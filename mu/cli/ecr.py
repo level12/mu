@@ -6,7 +6,7 @@ import click
 import mu.config
 from mu.config import Config
 from mu.libs import auth, ecr, utils
-from mu.libs.anon import Lambda
+from mu.libs.lamb import Lambda
 
 from ..cli import cli
 

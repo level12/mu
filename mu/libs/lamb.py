@@ -150,6 +150,28 @@ class Lambda:
 
         return response['FunctionArn']
 
+    def delete_permissions(self, func_name):
+        """TODO: this never deletes permissions.  Maybe b/c the lambda is already deleted?"""
+        # Retrieve the current policy attached to the Lambda function
+        try:
+            policy = self.lc.get_policy(FunctionName=func_name)
+        except self.lc.exceptions.ResourceNotFoundException:
+            log.info('No policy found for this function.')
+            return
+
+        # Load the policy as JSON and extract statement IDs
+        policy_document = json.loads(policy['Policy'])
+        statements = policy_document.get('Statement', [])
+
+        # Remove each permission statement by its StatementId
+        for statement in statements:
+            statement_id = statement['Sid']
+            self.lc.remove_permission(
+                FunctionName=func_name,
+                StatementId=statement_id,
+            )
+            print(f'Removed permission {statement_id} from function')
+
     def delete(self, env_name, *, force_repo):
         lambda_name = self.config.lambda_name_env(env_name)
 
@@ -175,6 +197,14 @@ class Lambda:
 
         self.roles.delete(self.role_name(env_name))
         self.apis.delete(self.config.api_name(env_name))
+
+        try:
+            self.lc.delete_function_url_config(FunctionName=lambda_name)
+            log.info('Function URL config deleted')
+        except self.not_found_exc:
+            log.info('Function URL config not found')
+
+        self.delete_permissions(lambda_name)
 
         if repo := self.repo(env_name):
             repo.delete(force=force_repo)
@@ -238,6 +268,37 @@ class Lambda:
 
         return api
 
+    def function_url(self, func_arn):
+        try:
+            resp = self.lc.create_function_url_config(
+                FunctionName=func_arn,
+                AuthType='NONE',
+            )
+            log.info('Function url config created')
+        except self.exists_exc:
+            resp = self.lc.get_function_url_config(FunctionName=func_arn)
+            log.info('Function url config existed')
+
+        try:
+            # policy_stmt = iam.policy_doc(
+            #     'lambda.InvokeFunctionUrl',
+            #     resource=func_arn,
+            #     condition={'StringEquals': {'lambda:FunctionUrlAuthType': 'NONE'}},
+            # )
+            self.lc.add_permission(
+                FunctionName=func_arn,
+                StatementId='AllowPublicAccessFunctionUrl',
+                Action='lambda:InvokeFunctionUrl',
+                Principal='*',
+                FunctionUrlAuthType='NONE',
+            )
+            log.info('Function url config permission added')
+        except self.exists_exc:
+            # TODO: do we need to be smarter about re-creating this?
+            log.info('Function url config permission existed')
+
+        return resp['FunctionUrl']
+
     def _deploy(self, env):
         repo: ecr.Repo = self.repo(env)
         if not repo:
@@ -252,7 +313,9 @@ class Lambda:
         func_arn = self.ensure_func(env, image_uri)
 
         self.event_rules(env, func_arn)
-        api = self.api_gateway(env, func_arn)
+        # TODO: offer api gateway as a config option
+        # api = self.api_gateway(env, func_arn)
+        func_url = self.function_url(func_arn)
 
         lambda_name = self.config.lambda_name_env(env)
         # The newly deployed app takes a bit to become active.  Wait for it to avoid prompt
@@ -263,19 +326,19 @@ class Lambda:
         log.info(f'Repo name:{spacing}%s', repo.name)
         log.info(f'Image URI:{spacing}%s', image_uri)
         log.info(f'Function name:{spacing}%s', lambda_name)
-        log.info(f'API gateway endpoint:{spacing}%s', api.api_endpoint)
+        log.info(f'Function URL:{spacing}%s', func_url)
 
     def deploy(self, target_envs):
         for env in target_envs:
             self._deploy(env)
 
     def wait_updated(self, lambda_name: str):
-        log.info('Waiting for lambda to be updated')
+        log.info('Waiting for lambda to be updated...')
         waiter = self.lc.get_waiter('function_updated_v2')
         waiter.wait(FunctionName=lambda_name)
 
     def wait_active(self, lambda_name: str):
-        log.info('Waiting for lambda to be active: %s', lambda_name)
+        log.info('Waiting for lambda to be active...')
         waiter = self.lc.get_waiter('function_active_v2')
         waiter.wait(FunctionName=lambda_name)
 

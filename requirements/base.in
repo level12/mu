@@ -7,6 +7,4 @@ click
 BlazeUtils
 methodtools
 colorlog
-# TODO: revisit the library
-lambda-wsgi-adapter
-werkzueg # used by lambda-wsgi-adapter but not declared there
+awsgi2

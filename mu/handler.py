@@ -1,7 +1,7 @@
 import logging
 import os
 
-from wsgi_adapter import LambdaWSGIHandler
+import awsgi2
 
 
 log = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ class ActionHandler:
         keys = set(event.keys())
         wsgi_keys = {'headers', 'requestContext', 'routeKey', 'rawPath'}
         if cls.wsgi_app and wsgi_keys.issubset(keys):
-            cls.wsgi(event, context)
+            return cls.wsgi(event, context)
 
         return cls.on_action('do-action', event, context)
 
@@ -89,5 +89,4 @@ class ActionHandler:
 
     @classmethod
     def wsgi(cls, event, context):
-        handler = LambdaWSGIHandler()
-        return handler(event, context)
+        return awsgi2.response(cls.wsgi_app, event, context, base64_content_types={'image/png'})

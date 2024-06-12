@@ -12,9 +12,11 @@ from . import sts, utils
 log = logging.getLogger(__name__)
 
 
-def policy_doc(*actions, resource=None, principal=None, effect='Allow'):
+def policy_doc(*actions, resource=None, principal=None, effect='Allow', condition=None):
     assert resource or principal
     assert not (resource and principal)
+
+    condition = {} if not condition else {'Condition': condition}
 
     if resource:
         key_name = 'Resource'
@@ -30,7 +32,8 @@ def policy_doc(*actions, resource=None, principal=None, effect='Allow'):
                 'Action': list(actions),
                 key_name: value,
                 'Effect': effect,
-            },
+            }
+            | condition,
         ],
     }
 
