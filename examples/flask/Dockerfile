@@ -17,4 +17,4 @@ COPY app.py ./
 # Uncomment this to get the CMD to be updated in the image.
 # RUN echo 'd' > /tmp/annoying.txt
 
-CMD ["app.lambda_entry"]
+CMD ["app.lambda_handler"]
