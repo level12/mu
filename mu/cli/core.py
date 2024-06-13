@@ -7,11 +7,15 @@ import colorlog
 
 import mu.config
 from mu.config import Config
-from mu.libs import api_gateway, auth, sts, utils
+from mu.libs import api_gateway, auth, sqs, sts, utils
 from mu.libs.lamb import Lambda
 
 
 log = logging.getLogger()
+
+
+def load_config(env) -> mu.config.Config:
+    return mu.config.load(Path.cwd(), env or mu.config.default_env())
 
 
 @click.group()
@@ -19,8 +23,6 @@ log = logging.getLogger()
 @click.option('--verbose', is_flag=True)
 @click.pass_context
 def cli(ctx, quiet, verbose):
-    ctx.obj = mu.config.load(Path.cwd())
-
     logging.addLevelName(logging.DEBUG, 'debug')
     logging.addLevelName(logging.INFO, 'info')
     logging.addLevelName(logging.WARNING, 'warning')
@@ -63,10 +65,10 @@ def auth_check(ctx):
 
 
 @cli.command()
-@click.pass_context
-def config(ctx):
+@click.argument('target_env', required=False)
+def config(target_env):
     """Display mu config for active project"""
-    config: Config = ctx.obj
+    config: Config = load_config(target_env)
 
     utils.print_dict(config.for_print())
 
@@ -76,11 +78,11 @@ def config(ctx):
 @click.pass_context
 def provision(ctx, envs: list[str]):
     """Provision lambda function in environment given (or default)"""
-    config: Config = ctx.obj
-    envs = envs or [config.default_env]
+    envs = envs or [None]
 
-    lamb = Lambda(config)
-    lamb.provision(*envs)
+    for env in envs:
+        lamb = Lambda(load_config(env))
+        lamb.provision()
 
 
 @cli.command()
@@ -89,24 +91,22 @@ def provision(ctx, envs: list[str]):
 @click.pass_context
 def deploy(ctx, envs: list[str], build: bool):
     """Deploy local image to ecr, update lambda"""
-    config: Config = ctx.obj
-    envs = envs or [config.default_env]
+    envs = envs or [mu.config.default_env()]
 
     if build:
         utils.compose_build()
 
-    lamb = Lambda(config)
-    lamb.deploy(envs)
+    for env in envs:
+        lamb = Lambda(load_config(env))
+        lamb.deploy(envs)
 
 
 @cli.command()
 @click.argument('target_env')
 @click.option('--force-repo', is_flag=True)
-@click.pass_context
-def delete(ctx, target_env: str, force_repo: bool):
+def delete(target_env: str, force_repo: bool):
     """Delete lambda and optionally related infra"""
-    config: Config = ctx.obj
-    lamb = Lambda(config)
+    lamb = Lambda(load_config(target_env))
     lamb.delete(target_env, force_repo=force_repo)
 
 
@@ -144,11 +144,8 @@ def invoke(ctx, target_env: str, action: str, host: str, action_args: list, loca
 @click.option('--reverse', is_flag=True)
 @click.pass_context
 def lambda_logs(ctx, target_env: str, limit: int, reverse: bool):
-    config: Config = ctx.obj
-    target_env = target_env or config.default_env
-
-    lamb = Lambda(config)
-    lamb.logs(target_env, limit, reverse)
+    lamb = Lambda(load_config(target_env))
+    lamb.logs(limit, reverse)
 
 
 @cli.command()
@@ -164,3 +161,22 @@ def apis(ctx: click.Context, verbose: bool):
             print(ag.name, ag, sep='\n')
         else:
             print(ag.name, ag.created_date, ag.api_id)
+
+
+@cli.command()
+@click.pass_context
+@click.argument('name_prefix', required=False, default='')
+@click.option('--verbose', is_flag=True)
+@click.option('--delete', is_flag=True)
+def sqs_list(ctx: click.Context, verbose: bool, delete: bool, name_prefix=str):
+    """List sqs queues in active account"""
+    sqs_ = sqs.SQS(auth.b3_sess())
+    for q in sqs_.list(name_prefix).values():
+        if delete:
+            q.delete()
+            continue
+
+        if verbose:
+            print(q.name, q.attrs, sep='\n')
+        else:
+            print(q.name)

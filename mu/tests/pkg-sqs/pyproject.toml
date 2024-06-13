@@ -1,0 +1,13 @@
+[project]
+name = 'TNG'
+
+[tool.mu]
+project-org = 'Starfleet'
+aws-region = 'us-east-2'
+
+
+[tool.mu.aws.sqs.celery]
+VisibilityTimeout = 3600
+
+[tool.mu.aws.sqs.photons]
+MessageRetentionPeriod = 10

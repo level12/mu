@@ -8,7 +8,7 @@ import requests
 
 from mu.config import Config
 
-from . import api_gateway, auth, ecr, iam, sts
+from . import api_gateway, auth, ecr, iam, sqs, sts
 
 
 log = logging.getLogger(__name__)
@@ -22,9 +22,20 @@ class Lambda:
         resource='arn:aws:logs:*:*:*',
     )
 
+    sqs_actions = (
+        'sqs:SendMessage',
+        'sqs:ReceiveMessage',
+        'sqs:DeleteMessage',
+        'sqs:GetQueueAttributes',
+        'sqs:GetQueueUrl',
+        'sqs:ChangeMessageVisibility',
+        'sqs:PurgeQueue',
+    )
+
     def __init__(self, config: Config, b3_sess: boto3.Session | None = None):
         self.config: Config = config
         self.b3_sess = b3_sess = b3_sess or auth.b3_sess(config.aws_region)
+        config.apply_sess(b3_sess)
 
         self.ident = config.lambda_name
         self.image_name = config.image_name
@@ -42,30 +53,11 @@ class Lambda:
         self.roles = iam.Roles(b3_sess)
         self.repos = ecr.Repos(b3_sess)
         self.apis = api_gateway.APIs(b3_sess)
+        self.sqs = sqs.SQS(b3_sess)
 
-    @functools.cached_property
-    def aws_acct_id(self):
-        return sts.account_id(self.b3_sess)
-
-    @property
-    def aws_region(self):
-        return self.b3_sess.region_name
-
-    def repo_name(self, env: str):
-        return self.config.repo_name(env)
-
-    def repo(self, env: str) -> ecr.Repo:
-        return self.repos.get(self.repo_name(env))
-
-    def role_name(self, env) -> str:
-        return self.config.lambda_env(env)
-
-    def role_arn(self, env) -> str:
-        return self.roles.arn(self.role_name(env))
-
-    def provision_role(self, env: str):
-        role_name: str = self.config.lambda_env(env)
-        role_arn: str = self.role_arn(env)
+    def provision_role(self):
+        role_name: str = self.config.resource_ident
+        role_arn: str = self.config.role_arn
 
         # Ensure the role exists and give lambda permission to use it.
         self.roles.ensure_role(
@@ -81,32 +73,40 @@ class Lambda:
         policy = iam.policy_doc(*self.repos.policy_actions, resource=role_arn)
         self.roles.attach_policy(role_name, 'ecr-repo', policy)
 
-        return role_arn
+        # Give permission to sqs queues
+        policy = iam.policy_doc(*self.sqs_actions, resource=self.config.sqs_resource)
+        self.roles.attach_policy(role_name, 'sqs-queues', policy)
 
-    def provision_repo(self, env: str, role_arn: str):
+    def provision_repo(self):
         # TODO: can probably remove this once testing is fast enough that we don't need to run
         # a separate test_provision_repo().  Besides, those tests should probably move to
         # test_ecr.py.
-        self.repos.ensure(self.repo_name(env), role_arn)
+        self.repos.ensure(self.config.resource_ident, self.config.role_arn)
 
-    def provision(self, *envs):
+    def provision_aws_config(self):
+        if sqs_configs := self.config.aws_configs('sqs'):
+            self.sqs.sync_config(self.config.resource_ident, sqs_configs)
+        else:
+            self.sqs.delete(self.config.resource_ident)
+
+    def provision(self):
         """Provision AWS dependencies for the lambda function."""
 
-        for env_name in envs:
-            role_arn: str = self.provision_role(env_name)
-            self.provision_repo(env_name, role_arn)
+        self.provision_role()
+        self.provision_repo()
+        self.provision_aws_config()
 
-        log.info(f'Provision finished for env: {env_name}')
+        log.info(f'Provision finished for: {self.config.lambda_ident}')
 
     def ensure_func(self, env_name: str, image_uri: str):
-        lambda_name = self.config.lambda_name_env(env_name)
+        func_name = self.config.lambda_ident
 
         log.info('Deploying lambda function')
 
         # TODO: should get these values from the config
         shared_config = {
-            'FunctionName': lambda_name,
-            'Role': self.role_arn(env_name),
+            'FunctionName': func_name,
+            'Role': self.config.role_arn,
             'Timeout': self.config.lambda_timeout,
             'MemorySize': self.config.lambda_memory,
             'LoggingConfig': {
@@ -115,7 +115,7 @@ class Lambda:
                 'SystemLogLevel': 'INFO',
             },
             'Environment': {
-                'Variables': self.config.environ(),
+                'Variables': self.config.deployed_env,
             },
         }
 
@@ -129,10 +129,10 @@ class Lambda:
         except self.exists_exc:
             try:
                 response = self.lc.update_function_configuration(**shared_config)
-                self.wait_updated(lambda_name)
+                self.wait_updated(func_name)
 
                 self.lc.update_function_code(
-                    FunctionName=lambda_name,
+                    FunctionName=func_name,
                     ImageUri=image_uri,
                 )
 
@@ -143,10 +143,8 @@ class Lambda:
                 needle = "don't provide ImageUri when updating a function with packageType Zip"
                 if needle not in str(e):
                     raise
-                log.warning("Existing function is Zip type, can't update.  Deleting.")
 
-                self.delete_func(env_name)
-                self.create_func(image_uri, lambda_name)
+                raise RuntimeError("Existing function is Zip type, can't update.") from e
 
         return response['FunctionArn']
 
@@ -170,10 +168,11 @@ class Lambda:
                 FunctionName=func_name,
                 StatementId=statement_id,
             )
-            print(f'Removed permission {statement_id} from function')
+            log.info(f'Removed permission {statement_id} from function')
 
     def delete(self, env_name, *, force_repo):
-        lambda_name = self.config.lambda_name_env(env_name)
+        lambda_name = self.config.lambda_ident
+        resource_ident = self.config.resource_ident
 
         try:
             self.lc.delete_function(
@@ -195,8 +194,9 @@ class Lambda:
             # No exception thrown if the rule doesn't exist.
             self.event_client.delete_rule(Name=rule_name)
 
-        self.roles.delete(self.role_name(env_name))
-        self.apis.delete(self.config.api_name(env_name))
+        self.roles.delete(resource_ident)
+        # self.apis.delete(resource_ident)
+        self.sqs.delete(resource_ident)
 
         try:
             self.lc.delete_function_url_config(FunctionName=lambda_name)
@@ -206,15 +206,15 @@ class Lambda:
 
         self.delete_permissions(lambda_name)
 
-        if repo := self.repo(env_name):
+        if repo := self.repos.get(resource_ident):
             repo.delete(force=force_repo)
         else:
-            log.info(f'Repository not found: {self.repo_name(env_name)}')
+            log.info(f'Repository not found: {resource_ident}')
 
     def event_rules(self, env_name, func_arn):
-        lambda_name = self.config.lambda_name_env(env_name)
+        name_prefix = self.config.resource_ident
         for rule_ident, config in self.config.event_rules.items():
-            rule_name = f'{lambda_name}-{rule_ident}'
+            rule_name = f'{name_prefix}-{rule_ident}'
             log.info('Adding event schedule: %s', rule_name)
 
             # TODO: better error handling
@@ -250,23 +250,23 @@ class Lambda:
 
             log.info('Rule arn: %s', rule_arn)
 
-    def api_gateway(self, env: str, func_arn: str) -> api_gateway.APIEndpoint:
-        api: api_gateway.APIEndpoint = self.apis.ensure(self.config.api_name(env), func_arn)
-        source_arn = f'arn:aws:execute-api:{self.aws_region}:{self.aws_acct_id}:{api.api_id}/*'
+    # def api_gateway(self, func_arn: str) -> api_gateway.APIEndpoint:
+    #     api: api_gateway.APIEndpoint = self.apis.ensure(self.config.api_name(env), func_arn)
+    #     source_arn = f'arn:aws:execute-api:{self.aws_region}:{self.aws_acct_id}:{api.api_id}/*'
 
-        try:  # noqa: SIM105
-            self.lc.add_permission(
-                FunctionName=func_arn,
-                StatementId='HttpApiInvoke',
-                Action='lambda:InvokeFunction',
-                Principal='apigateway.amazonaws.com',
-                SourceArn=source_arn,
-            )
-        except self.exists_exc:
-            # TODO: do we need to be smarter about this case?
-            pass
+    #     try:
+    #         self.lc.add_permission(
+    #             FunctionName=func_arn,
+    #             StatementId='HttpApiInvoke',
+    #             Action='lambda:InvokeFunction',
+    #             Principal='apigateway.amazonaws.com',
+    #             SourceArn=source_arn,
+    #         )
+    #     except self.exists_exc:
+    #         # TODO: do we need to be smarter about this case?
+    #         pass
 
-        return api
+    #     return api
 
     def function_url(self, func_arn):
         try:
@@ -300,7 +300,7 @@ class Lambda:
         return resp['FunctionUrl']
 
     def _deploy(self, env):
-        repo: ecr.Repo = self.repo(env)
+        repo: ecr.Repo = self.repos.get(self.config.resource_ident)
         if not repo:
             log.error(
                 'Repo not found: %s.  Do you need to provision first?',
@@ -317,15 +317,15 @@ class Lambda:
         # api = self.api_gateway(env, func_arn)
         func_url = self.function_url(func_arn)
 
-        lambda_name = self.config.lambda_name_env(env)
+        func_ident = self.config.lambda_ident
         # The newly deployed app takes a bit to become active.  Wait for it to avoid prompt
         # testing of the newly deployed changes from getting an older not-updated lambda.  Not fun.
-        self.wait_updated(lambda_name)
+        self.wait_updated(func_ident)
 
         spacing = '\n' + ' ' * 13
         log.info(f'Repo name:{spacing}%s', repo.name)
         log.info(f'Image URI:{spacing}%s', image_uri)
-        log.info(f'Function name:{spacing}%s', lambda_name)
+        log.info(f'Function name:{spacing}%s', func_ident)
         log.info(f'Function URL:{spacing}%s', func_url)
 
     def deploy(self, target_envs):
@@ -361,9 +361,9 @@ class Lambda:
 
         return resp.json()
 
-    def logs(self, env_name: str, limit: int, from_head: bool):
+    def logs(self, limit: int, from_head: bool):
         logs_client = self.b3_sess.client('logs')
-        lambda_name = self.config.lambda_name_env(env_name)
+        lambda_name = self.config.lambda_ident
 
         # TODO: after the lambda is updated and invoked, there is a few second delay until the
         # log output is converted over to the lastest lambda.  Can we let the user know when that

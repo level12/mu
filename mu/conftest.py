@@ -2,7 +2,7 @@ from os import environ
 
 import pytest
 
-from mu.libs import auth, sts
+from mu.libs import auth, sts, testing
 
 
 @pytest.fixture(scope='session')
@@ -14,3 +14,8 @@ def b3_sess():
     assert aid == environ.get('MU_TEST_ACCT_ID')
 
     return sess
+
+
+@pytest.fixture
+def logs(caplog):
+    return testing.Logs(caplog)

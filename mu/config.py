@@ -1,11 +1,13 @@
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
+import functools
 from os import environ
 from pathlib import Path
 import tomllib
 
 from blazeutils.strings import simplify_string as slug
+import boto3
 
-from .libs import utils
+from .libs import sts, utils
 
 
 def find_upwards(d: Path, filename: str):
@@ -34,35 +36,60 @@ def deep_get(d: dict, prefix: str, dotted_path: str, default=None, required=Fals
 
 @dataclass
 class Config:
+    env: str
     project_org: str
     project_name: str
-    project_ident: str
-    lambda_name: str
-    lambda_memory: int  # MB
-    lambda_timeout: int  # secs
-    image_name: str
-    default_env: str
-    action_key: str
-    _environ: dict[str, str]
-    event_rules: dict[str, dict[str, str]]
-    policy_arns: list[str]
-    # TODO: set region in config or trust its all setup in the active environ?
+    _image_name: str = ''
+    action_key: str = 'do-action'
+    aws_config: dict = field(default_factory=dict)
+    _project_ident: str = ''
+    lambda_name: str = 'func'
+    lambda_memory: int = 0  # MB
+    lambda_timeout: int = 0  # secs
     aws_region: str | None = None
+    aws_acct_id: str | None = None
+    _deployed_env: dict[str, str] = field(default_factory=dict)
+    event_rules: dict[str, dict[str, str]] = field(default_factory=dict)
+    policy_arns: list[str] = field(default_factory=list)
 
+    def apply_sess(self, sess: boto3.Session):
+        self.aws_region = sess.region_name
+        self.aws_acct_id = sts.account_id(sess)
+
+    @property
     def project_env(self, env_name: str):
         return f'{self.project_ident}-{env_name}'
 
-    def lambda_env(self, env_name: str):
-        return f'{self.project_ident}-lambda-{env_name}'
+    @functools.cached_property
+    def project_ident(self):
+        return self._project_ident or f'{self.project_org}-{self.project_name}'
 
-    def lambda_name_env(self, env_name: str):
-        return slug(f'{self.lambda_name}-{env_name}')
+    @functools.cached_property
+    def lambda_env(self):
+        return f'{self.lambda_name}-{self.env}'
 
-    def repo_name(self, env_name: str):
-        return self.project_env(env_name)
+    @functools.cached_property
+    def lambda_ident(self):
+        return slug(f'{self.project_ident}-{self.lambda_env}')
 
-    def api_name(self, env_name: str):
-        return self.project_env(env_name)
+    @functools.cached_property
+    def resource_ident(self):
+        return slug(f'{self.project_ident}-lambda-{self.lambda_env}')
+
+    @functools.cached_property
+    def image_name(self):
+        return slug(self._image_name or self.project_name)
+
+    @property
+    def role_arn(self):
+        return f'arn:aws:iam::{self.aws_acct_id}:role/{self.resource_ident}'
+
+    @property
+    def sqs_resource(self):
+        return f'arn:aws:sqs:{self.aws_region}:{self.aws_acct_id}:{self.resource_ident}-*'
+
+    def aws_configs(self, kind: str):
+        return self.aws_config.get(kind, {})
 
     def resolve_env(self, env_val: str):
         if not env_val.startswith('op://'):
@@ -71,19 +98,26 @@ class Config:
         result = utils.sub_run('op', 'read', '-n', env_val, capture_output=True)
         return result.stdout.decode('utf-8')
 
-    def environ(self):
-        return {name: self.resolve_env(val) for name, val in self._environ.items()}
+    @property
+    def deployed_env(self):
+        return {name: self.resolve_env(val) for name, val in self._deployed_env.items()} | {
+            'MU_ENV': self.env,
+        }
 
     def for_print(self):
         config = asdict(self)
-        config['project_env'] = f'{self.project_env(self.default_env)}'
-        config['lambda_env'] = f'{self.lambda_env(self.default_env)}'
-        config['lambda_name_env'] = f'{self.lambda_name_env(self.default_env)}'
-        config['repo_name'] = f'{self.repo_name(self.default_env)}'
+        config['lambda_ident'] = self.lambda_ident
+        config['resource_ident'] = self.resource_ident
+        config['image_name'] = self.image_name
+        config['role_arn'] = self.role_arn
         return config
 
 
-def load(start_at: Path):
+def default_env():
+    return environ.get('MU_DEFAULT_ENV') or utils.host_user()
+
+
+def load(start_at: Path, env: str):
     pp_fpath = find_upwards(start_at, 'pyproject.toml')
     if pp_fpath is None:
         raise Exception(f'No pyproject.toml found in {start_at} or parents')
@@ -102,34 +136,18 @@ def load(start_at: Path):
     with config_fpath.open('rb') as fo:
         config = tomllib.load(fo)
 
-    project_name: str = deep_get(pp_config, '', 'project.name', required=True)
-    project_org = deep_get(config, key_prefix, 'project-org', required=True)
-    project_ident = deep_get(
-        config,
-        key_prefix,
-        'project-ident',
-        default=f'{project_org}-{project_name}',
-    )
-    lambda_name = deep_get(
-        config,
-        key_prefix,
-        'lambda-name',
-        default=f'{project_ident}-handler',
-    )
-    image_name = deep_get(config, key_prefix, 'image-name', default=project_name)
-    action_key = deep_get(config, key_prefix, 'lambda-action-key', default='do-action')
-
     return Config(
-        project_org=project_org,
-        project_name=project_name,
-        project_ident=slug(project_ident),
-        lambda_name=slug(lambda_name),
-        image_name=slug(image_name),
-        default_env=environ.get('MU_DEFAULT_ENV') or utils.host_user(),
-        action_key=action_key,
-        _environ=deep_get(config, key_prefix, 'lambda-env', default={}),
+        env=env,
+        project_org=deep_get(config, key_prefix, 'project-org', required=True),
+        project_name=deep_get(pp_config, '', 'project.name', required=True),
+        _project_ident=deep_get(config, key_prefix, 'project-ident'),
+        lambda_name=deep_get(config, key_prefix, 'lambda-name', 'func'),
+        _image_name=deep_get(config, key_prefix, 'image-name'),
+        action_key=deep_get(config, key_prefix, 'lambda-action-key', default='do-action'),
+        _deployed_env=deep_get(config, key_prefix, 'deployed-env', default={}),
         event_rules=deep_get(config, key_prefix, 'event-rules', default={}),
         lambda_memory=deep_get(config, key_prefix, 'lambda_memory', default=2048),
         lambda_timeout=deep_get(config, key_prefix, 'lambda_timeout', default=900),
         policy_arns=deep_get(config, key_prefix, 'policy_arns', default=[]),
+        aws_config=deep_get(config, key_prefix, 'aws', default={}),
     )

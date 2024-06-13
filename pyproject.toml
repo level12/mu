@@ -76,7 +76,7 @@ target-version = 'py311'
 
 
 [tool.ruff.flake8-builtins]
-builtins-ignorelist = ['id', 'help']
+builtins-ignorelist = ['id', 'help', 'callable']
 
 
 [tool.ruff.isort]

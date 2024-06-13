@@ -5,7 +5,7 @@ import docker
 import docker.errors
 import pytest
 
-import mu.config
+from mu.config import Config
 from mu.libs import ecr, iam
 from mu.libs.lamb import Lambda
 
@@ -20,9 +20,17 @@ def roles(b3_sess):
     return iam.Roles(b3_sess)
 
 
+@pytest.fixture(scope='module')
+def config(b3_sess):
+    conf = Config('qa', project_org='greek', project_name='mu')
+    conf.apply_sess(b3_sess)
+    return conf
+
+
 @pytest.fixture
-def role_arn(roles):
-    return roles.ensure_role(TestECR.role_name, {'Service': 'lambda.amazonaws.com'}, ())
+def role_arn(roles, config):
+    roles.ensure_role(config.resource_ident, {'Service': 'lambda.amazonaws.com'}, ())
+    return config.role_arn
 
 
 @pytest.fixture(scope='module')
@@ -49,20 +57,17 @@ def docker_ensure(img):
 
 
 class TestECR:
-    role_name = 'greek-mu-lambda-test'
-    repo_name = 'greek-mu-test'
-
     @pytest.fixture(autouse=True, scope='class')
-    def prep(self, repos):
-        repos.delete(self.repo_name, force=True)
+    def prep(self, repos, config: Config):
+        repos.delete(config.resource_ident, force=True)
 
-    def test_tag_local(self, repos: ecr.Repos, role_arn: str, hw_tag: str):
-        repo = repos.ensure(self.repo_name, role_arn)
+    def test_tag_local(self, repos: ecr.Repos, role_arn: str, hw_tag: str, config: Config):
+        repo = repos.ensure(config.resource_ident, role_arn)
         tag = repo.tag_local('hello-world')
         assert tag == hw_tag
 
-    def test_push(self, repos: ecr.Repos, role_arn: str, hw_tag: str, bb_tag: str):
-        repo = repos.ensure(self.repo_name, role_arn)
+    def test_push(self, repos: ecr.Repos, role_arn: str, hw_tag: str, bb_tag: str, config: Config):
+        repo = repos.ensure(config.resource_ident, role_arn)
 
         repo.push('hello-world')
         repo.tag_remote(hw_tag, 'hello-world-foo')

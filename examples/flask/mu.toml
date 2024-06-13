@@ -1,2 +1,9 @@
 # Put under [tool.mu] in pyproject.toml
 project-org = 'Starfleet' # required
+
+[aws.sqs.celery]
+# Set to the longest expected runtime of a celery task plus a margin.
+# Also respresents how quickly a celery worker would see a new task if the first
+# task errored out without sending a delete message to the queue.
+VisibilityTimeout = '3600' # 6 hours
+

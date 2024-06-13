@@ -6,6 +6,8 @@ import logging
 
 import boto3
 
+from mu.config import Config
+
 from . import sts, utils
 
 
@@ -154,17 +156,10 @@ class Policies:
 
 
 class Roles:
-    def __init__(self, b3_sess):
+    def __init__(self, b3_sess: boto3.Session):
         self.b3_sess = b3_sess
         self.iam = b3_sess.client('iam')
         self.policies = Policies(b3_sess)
-
-    @functools.cached_property
-    def aws_acct_id(self):
-        return sts.account_id(self.b3_sess)
-
-    def arn(self, role_name: str):
-        return f'arn:aws:iam::{self.aws_acct_id}:role/{role_name}'
 
     def get(self, role_name: str):
         return self.iam.get_role(RoleName=role_name)['Role']
@@ -232,8 +227,6 @@ class Roles:
                 PolicyArn=arn,
             )
             log.info('Policy added to role: %s -> %s', arn, role_name)
-
-        return self.arn(role_name)
 
     def attach_policy(self, role_name: str, policy_ident: str, policy_doc: dict):
         """

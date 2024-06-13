@@ -10,8 +10,8 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
   # Use this with `docker compose run` if you need to explore the AWS python image
-  aws-python:
-    image: public.ecr.aws/docker/library/python:3.12-slim
+  runnable:
+    image: mu-flask:latest
     entrypoint: /bin/bash
     tty: true
     stdin_open: true

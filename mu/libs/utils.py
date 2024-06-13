@@ -102,6 +102,20 @@ class RetryingAction:
                 time.sleep(wait_for)
 
 
+def wait_seq(count, secs):
+    extra = [secs] * count
+    return (0.1, 0.25, 0.5, 0.75, 1, *extra)
+
+
+def retry(func, *args, waiting_for, secs=1, count=30, **kwargs):
+    for wait_for in wait_seq(count, secs):
+        result = func(*args, **kwargs)
+        if result:
+            return result
+        log.info(f'Waiting {wait_for}s for {waiting_for}')
+        time.sleep(wait_for)
+
+
 def compose_build():
     sub_run(
         'docker',

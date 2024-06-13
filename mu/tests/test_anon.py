@@ -5,6 +5,7 @@ import pytest
 import mu.config
 from mu.libs import ecr, iam
 from mu.libs.lamb import Lambda
+from mu.libs.testing import Logs
 
 
 @pytest.fixture
@@ -24,26 +25,17 @@ def repos(b3_sess):
 
 def config():
     return mu.config.Config(
+        env='qa',
         project_org='Greek',
         project_name='mu',
-        project_ident='greek-mu',
-        lambda_name='greek-mu-main',
-        image_name='greek-mu-lambda',
-        default_env='test',
-        action_key='lambda-action',
-        lambda_memory=1024,
-        lambda_timeout=900,
-        policy_arns=(),
-        _environ={},
-        event_rules={},
     )
 
 
 class TestLambda:
-    role_name = 'greek-mu-lambda-test'
+    role_name = 'greek-mu-lambda-func-qa'
     logs_policy = f'{role_name}-logs'
     ecr_repo_policy = f'{role_name}-ecr-repo'
-    repo_name = 'greek-mu-test'
+    repo_name = role_name
 
     @pytest.fixture(autouse=True)
     def reset_aws(self, roles, policies, repos):
@@ -55,7 +47,7 @@ class TestLambda:
         caplog.set_level(logging.INFO)
 
         anon = Lambda(config(), b3_sess)
-        anon.provision_role('test')
+        anon.provision_role()
 
         role = roles.get(self.role_name)
         assert role['AssumeRolePolicyDocument'] == {
@@ -99,7 +91,7 @@ class TestLambda:
         }
 
         # Should be able to run it with existing resources and not get any errors.
-        anon.provision_role('test')
+        anon.provision_role()
 
         log_messages = [rec.message for rec in caplog.records]
 
@@ -107,19 +99,21 @@ class TestLambda:
             f'Role created: {self.role_name}',
             f'Policy created: {self.logs_policy}',
             f'Policy created: {self.ecr_repo_policy}',
+            'Policy created: greek-mu-lambda-func-qa-sqs-queues',
             f'Role existed, assume role policy updated: {self.role_name}',
             f'Policy existed, document current: {self.logs_policy}',
             f'Policy existed, document current: {self.ecr_repo_policy}',
+            'Policy existed, document current: greek-mu-lambda-func-qa-sqs-queues',
         ]
 
     def test_provision_repo(self, b3_sess, repos: ecr.Repos, caplog):
         caplog.set_level(logging.INFO)
 
         anon = Lambda(config(), b3_sess)
-        role_arn: str = anon.provision_role('test')
+        anon.provision_role()
 
         caplog.clear()
-        anon.provision_repo('test', role_arn)
+        anon.provision_repo()
 
         repo = repos.get(self.repo_name)
         assert repo.get_policy() == {
@@ -137,7 +131,7 @@ class TestLambda:
             ],
         }
 
-        anon.provision_repo('test', role_arn)
+        anon.provision_repo()
         log_messages = [rec.message for rec in caplog.records if 'Waiting' not in rec.message]
 
         assert log_messages == [
@@ -145,8 +139,8 @@ class TestLambda:
             f'Repository existed: {self.repo_name}',
         ]
 
-    def test_provision_func(self, b3_sess, policies, roles, repos: ecr.Repos, caplog):
-        caplog.set_level(logging.INFO)
-
+    def test_provision_func(self, b3_sess, logs: Logs):
         anon = Lambda(config(), b3_sess)
-        anon.provision('test')
+        anon.provision()
+
+        assert logs.messages[-1] == 'Provision finished for: greek-mu-func-qa'

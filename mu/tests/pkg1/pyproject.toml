@@ -5,3 +5,6 @@ name = 'TNG'
 project-org = 'Starfleet'
 aws-region = 'us-east-2'
 
+
+[tool.mu.deployed-env]
+GEORDI = 'La Forge'
