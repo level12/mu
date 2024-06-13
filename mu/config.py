@@ -102,7 +102,7 @@ class Config:
     def deployed_env(self):
         return {name: self.resolve_env(val) for name, val in self._deployed_env.items()} | {
             'MU_ENV': self.env,
-            'MU_ENV_SLUG': slug(self.env),
+            'MU_RESOURCE_IDENT': self.resource_ident,
         }
 
     def for_print(self):

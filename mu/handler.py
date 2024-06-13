@@ -90,3 +90,7 @@ class ActionHandler:
     @classmethod
     def wsgi(cls, event, context):
         return awsgi2.response(cls.wsgi_app, event, context, base64_content_types={'image/png'})
+
+    @staticmethod
+    def error(event: dict, context: dict):
+        raise RuntimeError('ActionHandler.error(): deliberate error for testing purposes')

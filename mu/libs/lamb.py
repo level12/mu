@@ -342,10 +342,10 @@ class Lambda:
         waiter = self.lc.get_waiter('function_active_v2')
         waiter.wait(FunctionName=lambda_name)
 
-    def invoke(self, env_name: str, action: str, action_args: list):
+    def invoke(self, action: str, action_args: list):
         event = {self.config.action_key: action, 'action-args': action_args}
         response = self.lc.invoke(
-            FunctionName=self.config.lambda_name_env(env_name),
+            FunctionName=self.config.lambda_ident,
             # TODO: maybe enable 'Event' for InvocationType for async invocation
             InvocationType='RequestResponse',
             Payload=bytes(json.dumps(event), encoding='utf8'),
@@ -396,7 +396,16 @@ class Lambda:
                     rec: dict = json.loads(event['message'])
                     rec_type = rec.get('type')
                     if rec_type is None:
-                        print(rec['timestamp'], rec['level'], rec['logger'], rec['message'])
+                        print(
+                            rec['timestamp'],
+                            rec['level'],
+                            rec['logger'],
+                            rec['message'],
+                        )
+                        if st_lines := rec.get('stackTrace'):
+                            print(rec.get('errorType', '') + ':', rec.get('errorMessage', ''))
+                            print(''.join(st_lines))
+
                     elif rec_type == 'platform.start':
                         print(rec['time'], rec_type, 'version:', rec['record']['version'])
                     elif rec_type == 'platform.report':

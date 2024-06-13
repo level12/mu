@@ -126,14 +126,11 @@ def build():
 def invoke(ctx, target_env: str, action: str, host: str, action_args: list, local: bool):
     """Invoke lambda with diagnostics or given action"""
 
-    config: Config = ctx.obj
-
-    lamb = Lambda(config)
+    lamb = Lambda(load_config(target_env))
     if local:
         result = lamb.invoke_rei(host, action, action_args)
     else:
-        target_env = config.default_env if target_env is None else target_env
-        result = lamb.invoke(target_env, action, action_args)
+        result = lamb.invoke(action, action_args)
 
     pprint(result)
 
