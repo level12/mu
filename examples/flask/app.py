@@ -36,6 +36,15 @@ def sqs():
     return str((response.get('QueueUrl'), environ.get('MU_ENV')))
 
 
+@app.route('/sqs')
+def sqs():
+    sqs = boto3.client('sqs', region_name='us-east-2')
+    queue_name = 'starfleet-mu-flask-lambda-func-rsyringmeld-celery'
+    response = sqs.get_queue_url(QueueName=queue_name)
+
+    return str((response.get('QueueUrl'), environ.get('MU_ENV')))
+
+
 @app.route('/log')
 def logs_example():
     log.error('This is an error')
