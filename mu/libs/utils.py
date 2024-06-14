@@ -59,7 +59,14 @@ def sub_run(*args, **kwargs):
     kwargs['check'] = True
     args = args or kwargs['args']
     log.info(shlex.join(str(arg) for arg in args))
-    return subprocess.run(args, **kwargs)
+
+    try:
+        return subprocess.run(args, **kwargs)
+    except subprocess.CalledProcessError as e:
+        if kwargs.get('capture_output'):
+            log.error('subprocess stdout: %s', e.stdout.decode('utf-8'))
+            log.error('subprocess stderr: %s', e.stderr.decode('utf-8'))
+        raise
 
 
 def take(from_: dict, *keys):
@@ -116,10 +123,11 @@ def retry(func, *args, waiting_for, secs=1, count=30, **kwargs):
         time.sleep(wait_for)
 
 
-def compose_build():
+def compose_build(*service_names):
     sub_run(
         'docker',
         'compose',
         'build',
         '--pull',
+        *service_names,
     )

@@ -94,12 +94,15 @@ def deploy(ctx, envs: list[str], build: bool):
     """Deploy local image to ecr, update lambda"""
     envs = envs or [mu.config.default_env()]
 
-    if build:
-        utils.compose_build()
+    configs = [load_config(env) for env in envs]
 
-    for env in envs:
-        lamb = Lambda(load_config(env))
-        lamb.deploy(envs)
+    if build:
+        service_names = [config.compose_service for config in configs]
+        utils.compose_build(*service_names)
+
+    for config in configs:
+        lamb = Lambda(config)
+        lamb.deploy(config.env)
 
 
 @cli.command()
@@ -112,9 +115,12 @@ def delete(target_env: str, force_repo: bool):
 
 
 @cli.command()
-def build():
+@click.argument('target_env', required=False)
+def build(target_env: str):
     """Build lambda container with docker compose"""
-    utils.compose_build()
+
+    conf = load_config(target_env)
+    utils.compose_build(conf.compose_service)
 
 
 @cli.command()
@@ -133,7 +139,11 @@ def invoke(ctx, target_env: str, action: str, host: str, action_args: list, loca
     else:
         result = lamb.invoke(action, action_args)
 
-    pprint(result)
+    if isinstance(result, dict) and result.get('errorMessage'):
+        print(''.join(result.get('stackTrace', ())))
+        print(result.get('errorType'), result.get('errorMessage'))
+    else:
+        pprint(result)
 
 
 @cli.command()

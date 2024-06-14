@@ -3,6 +3,7 @@ import functools
 import logging
 from os import environ
 from pathlib import Path
+import subprocess
 import tomllib
 
 from blazeutils.strings import simplify_string as slug
@@ -45,6 +46,7 @@ class Config:
     project_name: str
     _image_name: str = ''
     action_key: str = 'do-action'
+    compose_service: str = 'app'  # for building
     aws_config: dict = field(default_factory=dict)
     _project_ident: str = ''
     lambda_name: str = 'func'
@@ -175,4 +177,5 @@ def load(start_at: Path, env: str):
         lambda_timeout=deep_get(config, key_prefix, 'lambda_timeout', default=900),
         policy_arns=deep_get(config, key_prefix, 'policy_arns', default=[]),
         aws_config=deep_get(config, key_prefix, 'aws', default={}),
+        compose_service=deep_get(config, key_prefix, 'compose-service', default='app'),
     )

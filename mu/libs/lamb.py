@@ -299,7 +299,7 @@ class Lambda:
 
         return resp['FunctionUrl']
 
-    def _deploy(self, env):
+    def deploy(self, env):
         repo: ecr.Repo = self.repos.get(self.config.resource_ident)
         if not repo:
             log.error(
@@ -327,10 +327,6 @@ class Lambda:
         log.info(f'Image URI:{spacing}%s', image_uri)
         log.info(f'Function name:{spacing}%s', func_ident)
         log.info(f'Function URL:{spacing}%s', func_url)
-
-    def deploy(self, target_envs):
-        for env in target_envs:
-            self._deploy(env)
 
     def wait_updated(self, lambda_name: str):
         log.info('Waiting for lambda to be updated...')
@@ -398,9 +394,9 @@ class Lambda:
                     if rec_type is None:
                         print(
                             rec['timestamp'],
-                            rec['level'],
-                            rec['logger'],
-                            rec['message'],
+                            rec.get('log_level') or rec['level'],
+                            rec.get('logger'),
+                            rec.get('message'),
                         )
                         if st_lines := rec.get('stackTrace'):
                             print(rec.get('errorType', '') + ':', rec.get('errorMessage', ''))

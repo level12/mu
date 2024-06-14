@@ -169,14 +169,14 @@ class Repo:
         # Authenticate to ECR.  TODO: catch errors
         self.docker.login(username=username, password=password, registry=registry)
 
-        log.info('Tagged, pushing...')
+        log.info(f'Tagged, pushing {image_name}:{tag}...')
         results = self.docker.images.push(self.uri, tag=tag)
 
         # TODO: better error handling
         assert 'error' not in str(results), results
 
         log.debug(results)
-        log.info('Tagged and pushed: %s %s', self.uri, tag)
+        log.info('Push complete')
 
         self.images.cache_clear()
 
@@ -295,7 +295,6 @@ class Repos:
         ecr_repo_uri = self.ecr_repo_uri()
 
         image = self.local_image()
-        created_utc = self.local_image_created()
 
         tag = self.local_image_tag(target_env)
         image.tag(ecr_repo_uri, tag=tag)
@@ -312,10 +311,10 @@ class Repos:
         # Authenticate to ECR.  TODO: catch errors
         self.docker.login(username=username, password=password, registry=registry)
 
-        print('Tagged, pushing...')
+        log.info(f'Tagged, pushing {self.local_image_name}:{tag}...')
         results = self.docker.images.push(ecr_repo_uri, tag=tag, stream=True, decode=True)
 
         for line in results:
             print(line)
 
-        print('Tagged and pushed:', ecr_repo_uri, tag)
+        log.info('Push complete')
