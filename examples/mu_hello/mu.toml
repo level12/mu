@@ -8,7 +8,7 @@ lambda_timeout = 60  # seconds, max: 900
 # policy_arns = ['arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess']
 
 # Set environment values for the lambda that will apply when its running.
-[lambda-env]  # [tool.mu.lambda-env] in pyproject.toml
+[deployed-env]  # [tool.mu.lambda-env] in pyproject.toml
 ENTERPRISE_CAPTAIN = 'Picard and sometimes Riker'
 # Support is built in for one password secrets using the `op` cli tool
 # TRANSPORTER_PASS = 'op://starship-enterprise/Cargo Bay Transporter/password'

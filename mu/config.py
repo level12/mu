@@ -1,5 +1,6 @@
 from dataclasses import asdict, dataclass, field
 import functools
+import logging
 from os import environ
 from pathlib import Path
 import tomllib
@@ -8,6 +9,9 @@ from blazeutils.strings import simplify_string as slug
 import boto3
 
 from .libs import sts, utils
+
+
+log = logging.getLogger(__name__)
 
 
 def find_upwards(d: Path, filename: str):
@@ -54,7 +58,12 @@ class Config:
 
     def apply_sess(self, sess: boto3.Session):
         self.aws_region = sess.region_name
-        self.aws_acct_id = sts.account_id(sess)
+        try:
+            self.aws_acct_id = sts.account_id(sess)
+        except Exception as e:
+            if 'NoCredentialsError' not in str(type(e)):
+                raise
+            log.warning('No AWS credentials found')
 
     @property
     def project_env(self, env_name: str):
@@ -78,7 +87,7 @@ class Config:
 
     @functools.cached_property
     def image_name(self):
-        return slug(self._image_name or self.project_name)
+        return slug(self._image_name or self.project_ident)
 
     @property
     def role_arn(self):
@@ -100,16 +109,31 @@ class Config:
 
     @property
     def deployed_env(self):
-        return {name: self.resolve_env(val) for name, val in self._deployed_env.items()} | {
+        return self.deployed_env_gen(True)
+
+    def deployed_env_gen(self, resolve: bool):
+        return {
+            name: self.resolve_env(val) if resolve else val
+            for name, val in self._deployed_env.items()
+        } | {
             'MU_ENV': self.env,
             'MU_RESOURCE_IDENT': self.resource_ident,
         }
 
-    def for_print(self):
+    def for_print(self, resolve_env):
         config = asdict(self)
+
+        config['deployed_env'] = self.deployed_env_gen(resolve_env)
+        del config['_deployed_env']
+
+        config['image_name'] = self.image_name
+        del config['_image_name']
+
+        config['project_ident'] = self.project_ident
+        del config['_project_ident']
+
         config['lambda_ident'] = self.lambda_ident
         config['resource_ident'] = self.resource_ident
-        config['image_name'] = self.image_name
         config['role_arn'] = self.role_arn
         return config
 

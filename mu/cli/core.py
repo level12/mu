@@ -47,10 +47,10 @@ def cli(ctx, quiet, verbose):
 
 
 @cli.command()
-@click.pass_context
-def auth_check(ctx):
+@click.argument('target_env', required=False)
+def auth_check(target_env):
     """Check AWS auth by displaying account info"""
-    config: Config = ctx.obj
+    config: Config = load_config(target_env)
     b3_sess = auth.b3_sess(config.aws_region)
     acct_id: str = sts.account_id(b3_sess)
     print('Account:', acct_id)
@@ -66,11 +66,12 @@ def auth_check(ctx):
 
 @cli.command()
 @click.argument('target_env', required=False)
-def config(target_env):
+@click.option('--resolve-env', is_flag=True, help='Show env after resolution (e.g. secrets)')
+def config(target_env: str, resolve_env: bool):
     """Display mu config for active project"""
     config: Config = load_config(target_env)
 
-    utils.print_dict(config.for_print())
+    utils.print_dict(config.for_print(resolve_env))
 
 
 @cli.command()
