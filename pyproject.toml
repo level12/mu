@@ -13,6 +13,7 @@ dynamic = ['dependencies', 'optional-dependencies']
 mu = "mu.cli:cli"
 
 [tool.hatch.metadata.hooks.requirements_txt]
+# Not a frozen file
 files = ['requirements/base.txt']
 
 [tool.hatch.metadata.hooks.requirements_txt.optional-dependencies]
