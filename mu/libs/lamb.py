@@ -403,12 +403,11 @@ class Lambda:
             log.info(f'No log streams found for: {lambda_name}')
             return
 
-        def pstream(i, stream):
+        def pstream(stream):
             start = utils.log_time(stream['creationTime'])
             end = utils.log_time(stream['lastIngestionTime'])
             print(
                 'Stream:',
-                f'{i:<3}',
                 utils.log_fmt(start),
                 end.format('HH:mm'),
                 '--',
@@ -420,29 +419,33 @@ class Lambda:
             if desc:
                 log_streams.reverse()
 
-            for i, stream in enumerate(log_streams):
-                pstream(i, stream)
+            for stream in log_streams:
+                pstream(stream)
             return
 
         events = list(
             itertools.islice(
                 (
-                    (i, stream, event)
-                    for i, stream in enumerate(log_streams)
+                    (stream, event)
+                    for stream in log_streams
                     for event in self.log_events(stream, desc)
                 ),
                 limit,
             ),
         )
 
+        # Sort by
+        stream_events = [
+            (row[0], list(row[1])) for row in itertools.groupby(events, lambda r: r[0])
+        ]
+
         if last:
-            events = reversed(list(events))
+            stream_events = sorted(stream_events, key=lambda row: row[0]['creationTime'])
 
-        for stream_pair, rows in itertools.groupby(events, lambda r: r[0:2]):
-            i, stream = stream_pair
-            pstream(i, stream)
+        for stream, rows in stream_events:
+            pstream(stream)
 
-            for _, _, event in rows:
+            for _, event in reversed(rows) if desc else rows:
                 self.log_event_print(event)
 
     def log_events(self, stream: dict, desc: bool):
@@ -453,17 +456,18 @@ class Lambda:
         resp = self.logs_client.get_log_events(
             logGroupName=f'/aws/lambda/{lambda_name}',
             logStreamName=log_stream_name,
-            startFromHead=not desc,
+            # It seems like this param would control order but it doesn't.
+            # startFromHead=True,
         )
-
-        yield from resp['events']
+        events = reversed(resp['events']) if desc else resp['events']
+        yield from events
 
     def log_event_print(self, event: dict):
         padding = ' ' * 3
 
         def pevent(*args):
             line = ' '.join(str(arg) for arg in args)
-            lines = textwrap.wrap(line, 80, initial_indent=padding, subsequent_indent=' ' * 7)
+            lines = textwrap.wrap(line, 100, initial_indent=padding, subsequent_indent=' ' * 7)
             print('\n'.join(lines))
 
         try:
