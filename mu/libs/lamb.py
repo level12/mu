@@ -108,7 +108,7 @@ class Lambda:
 
         log.info('Deploying lambda function')
 
-        vpc_config = {}
+        vpc_config = {'SubnetIds': [], 'SecurityGroupIds': []}
         # TODO: should also be able to add by subnet ids in config, not just names.
         if subnet_names := self.config.vpc_subnet_names:
             vpc_config['SubnetIds'] = subnet_ids = [
@@ -345,9 +345,11 @@ class Lambda:
         func_url = self.function_url(func_arn)
 
         func_ident = self.config.lambda_ident
+
         # The newly deployed app takes a bit to become active.  Wait for it to avoid prompt
         # testing of the newly deployed changes from getting an older not-updated lambda.  Not fun.
         self.wait_updated(func_ident)
+        self.wait_active(func_ident)
 
         spacing = '\n' + ' ' * 13
         log.info(f'Repo name:{spacing}%s', repo.name)
