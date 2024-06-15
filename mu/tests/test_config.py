@@ -22,7 +22,7 @@ class TestConfig:
         assert c.lambda_name == 'func'
         assert c.lambda_ident == 'starfleet-tng-func-qa'
         assert c.resource_ident == 'starfleet-tng-lambda-func-qa'
-        assert c.image_name == 'tng'
+        assert c.image_name == 'starfleet-tng'
         assert c.action_key == 'do-action'
         assert c.deployed_env == {
             'GEORDI': 'La Forge',
@@ -35,6 +35,7 @@ class TestConfig:
 
         assert c.role_arn == 'arn:aws:iam::1234:role/starfleet-tng-lambda-func-qa'
         assert c.sqs_resource == 'arn:aws:sqs:south:1234:starfleet-tng-lambda-func-qa-*'
+        assert c.function_arn == 'arn:aws:lambda:south:1234:function:starfleet-tng-func-qa'
 
     @mock_patch_obj(config.utils, 'host_user')
     def test_mu_toml(self, m_host_user):

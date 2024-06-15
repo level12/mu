@@ -1,14 +1,16 @@
-import functools
+import itertools
 import json
 import logging
+import textwrap
 
+import arrow
 import boto3
 import docker
 import requests
 
 from mu.config import Config
 
-from . import api_gateway, auth, ecr, iam, sqs, sts
+from . import api_gateway, auth, ec2, ecr, iam, sqs, utils
 
 
 log = logging.getLogger(__name__)
@@ -43,6 +45,7 @@ class Lambda:
 
         self.lc = b3_sess.client('lambda')
         self.event_client = b3_sess.client('events')
+        self.logs_client = self.b3_sess.client('logs')
         self.not_found_exc = (
             self.lc.exceptions.ResourceNotFoundException,
             self.event_client.exceptions.ResourceNotFoundException,
@@ -57,7 +60,6 @@ class Lambda:
 
     def provision_role(self):
         role_name: str = self.config.resource_ident
-        role_arn: str = self.config.role_arn
 
         # Ensure the role exists and give lambda permission to use it.
         self.roles.ensure_role(
@@ -70,12 +72,15 @@ class Lambda:
         self.roles.attach_policy(role_name, 'logs', self.logs_policy)
 
         # Give permission to get images from the container registry
-        policy = iam.policy_doc(*self.repos.policy_actions, resource=role_arn)
+        policy = iam.policy_doc(*self.repos.policy_actions, resource=self.config.repo_arn)
         self.roles.attach_policy(role_name, 'ecr-repo', policy)
 
         # Give permission to sqs queues
         policy = iam.policy_doc(*self.sqs_actions, resource=self.config.sqs_resource)
         self.roles.attach_policy(role_name, 'sqs-queues', policy)
+
+        # Needed to create network interfaces and other vpc actions when it joins the vpc.
+        self.roles.attach_managed_policy(role_name, 'AWSLambdaVPCAccessExecutionRole')
 
     def provision_repo(self):
         # TODO: can probably remove this once testing is fast enough that we don't need to run
@@ -103,7 +108,28 @@ class Lambda:
 
         log.info('Deploying lambda function')
 
-        # TODO: should get these values from the config
+        vpc_config = {}
+        # TODO: should also be able to add by subnet ids in config, not just names.
+        if subnet_names := self.config.vpc_subnet_names:
+            vpc_config['SubnetIds'] = subnet_ids = [
+                subnet['SubnetId']
+                for name, subnet in ec2.describe_subnets(
+                    self.b3_sess,
+                    name_tag_key=self.config.vpc_subnet_name_tag_key,
+                ).items()
+                if name in subnet_names
+            ]
+            log.info('Assigning subnets: %s - %s', ','.join(subnet_names), subnet_ids)
+        if sec_group_names := self.config.vpc_security_group_names:
+            vpc_config['SecurityGroupIds'] = group_ids = [
+                group['GroupId']
+                for group in ec2.describe_security_groups(
+                    self.b3_sess,
+                    sec_group_names,
+                ).values()
+            ]
+            log.info('Assigning security groups: %s - %s', ','.join(sec_group_names), group_ids)
+
         shared_config = {
             'FunctionName': func_name,
             'Role': self.config.role_arn,
@@ -114,6 +140,7 @@ class Lambda:
                 'ApplicationLogLevel': 'INFO',
                 'SystemLogLevel': 'INFO',
             },
+            'VpcConfig': vpc_config,
             'Environment': {
                 'Variables': self.config.deployed_env,
             },
@@ -357,65 +384,120 @@ class Lambda:
 
         return resp.json()
 
-    def logs(self, limit: int, from_head: bool):
-        logs_client = self.b3_sess.client('logs')
+    def logs(self, first: int, last: int, streams: bool):
         lambda_name = self.config.lambda_ident
+        desc = bool(last)
+        limit = last if last else first
 
-        # TODO: after the lambda is updated and invoked, there is a few second delay until the
-        # log output is converted over to the lastest lambda.  Can we let the user know when that
-        # happens?  Well, the delay is there just from invoking too, even when an update hasn't
-        # happened, so maybe that's just the delay for the output to get through AWS to cloudwatch.
-        # TODO: we should support old log streems
-        log_streams = logs_client.describe_log_streams(
+        resp = self.logs_client.describe_log_streams(
             logGroupName=f'/aws/lambda/{lambda_name}',
             orderBy='LastEventTime',
-            descending=True,
-            limit=1,
+            descending=desc,
+            limit=limit if streams else 50,
         )
 
-        if log_streams.get('logStreams'):
-            log_stream_name = log_streams['logStreams'][0]['logStreamName']
+        log_streams: list = resp.get('logStreams')
+        if not log_streams:
+            log.info(f'No log streams found for: {lambda_name}')
+            return
 
-            # TODO: we should support start and end times which the API supports
-            log_events = logs_client.get_log_events(
-                logGroupName=f'/aws/lambda/{lambda_name}',
-                logStreamName=log_stream_name,
-                # Default startFromHead is False (latest events first)
-                startFromHead=from_head,
-                limit=limit,
+        def pstream(i, stream):
+            start = utils.log_time(stream['creationTime'])
+            end = utils.log_time(stream['lastIngestionTime'])
+            print(
+                'Stream:',
+                f'{i:<3}',
+                utils.log_fmt(start),
+                end.format('HH:mm'),
+                '--',
+                start.humanize(end, only_distance=True),
+                stream['logStreamName'],
             )
 
-            # TODO: can we stream (i.e. follow) them?
-            # TODO: can format out the output better.  See misc/lambda-logs-example.txt
-            for event in log_events['events']:
-                try:
-                    rec: dict = json.loads(event['message'])
-                    rec_type = rec.get('type')
-                    if rec_type is None:
-                        print(
-                            rec['timestamp'],
-                            rec.get('log_level') or rec['level'],
-                            rec.get('logger'),
-                            rec.get('message'),
-                        )
-                        if st_lines := rec.get('stackTrace'):
-                            print(rec.get('errorType', '') + ':', rec.get('errorMessage', ''))
-                            print(''.join(st_lines))
+        if streams:
+            if desc:
+                log_streams.reverse()
 
-                    elif rec_type == 'platform.start':
-                        print(rec['time'], rec_type, 'version:', rec['record']['version'])
-                    elif rec_type == 'platform.report':
-                        record = rec['record']
-                        print(rec['time'], rec_type)
-                        print('   ', 'status:', record['status'])
-                        for metric, value in record['metrics'].items():
-                            print('   ', f'{metric}:', value)
-                    else:
-                        print(rec)
-                except json.JSONDecodeError:
-                    print(event)
-        else:
-            log.info(f'No log streams found for: {lambda_name}')
+            for i, stream in enumerate(log_streams):
+                pstream(i, stream)
+            return
+
+        events = list(
+            itertools.islice(
+                (
+                    (i, stream, event)
+                    for i, stream in enumerate(log_streams)
+                    for event in self.log_events(stream, desc)
+                ),
+                limit,
+            ),
+        )
+
+        if last:
+            events = reversed(list(events))
+
+        for stream_pair, rows in itertools.groupby(events, lambda r: r[0:2]):
+            i, stream = stream_pair
+            pstream(i, stream)
+
+            for _, _, event in rows:
+                self.log_event_print(event)
+
+    def log_events(self, stream: dict, desc: bool):
+        lambda_name: str = self.config.lambda_ident
+        log_stream_name = stream['logStreamName']
+
+        # TODO: we should support start and end times which the API supports
+        resp = self.logs_client.get_log_events(
+            logGroupName=f'/aws/lambda/{lambda_name}',
+            logStreamName=log_stream_name,
+            startFromHead=not desc,
+        )
+
+        yield from resp['events']
+
+    def log_event_print(self, event: dict):
+        padding = ' ' * 3
+
+        def pevent(*args):
+            line = ' '.join(str(arg) for arg in args)
+            lines = textwrap.wrap(line, 80, initial_indent=padding, subsequent_indent=' ' * 7)
+            print('\n'.join(lines))
+
+        try:
+            rec: dict = json.loads(event['message'])
+            rec_type = rec.get('type')
+            if rec_type is None:
+                pevent(
+                    rec['timestamp'],
+                    rec.get('log_level') or rec['level'],
+                    rec.get('logger', ''),
+                    rec.get('message', ''),
+                )
+                if st_lines := rec.get('stackTrace'):
+                    pevent(''.join(st_lines))
+                    pevent(rec.get('errorType', '') + ':', rec.get('errorMessage', ''))
+
+            elif rec_type == 'platform.start':
+                pevent(rec['time'], rec_type, 'version:', rec['record']['version'])
+            elif rec_type in (
+                'platform.report',
+                'platform.initReport',
+                'platform.runtimeDone',
+            ):
+                record = rec['record']
+                pevent(rec['time'], rec_type)
+                pevent('   ', 'status:', record['status'])
+                for metric, value in record['metrics'].items():
+                    pevent('   ', f'{metric}:', value)
+            else:
+                pevent(rec)
+        except json.JSONDecodeError:
+            try:
+                ts = arrow.get(int(event['timestamp']))
+                pevent(ts.format('YYYY-MM-DDTHH:mm:ss[Z]'), event['message'])
+            except KeyError:
+                pevent('JSON decode error', event)
 
     # def placeholder_zip(self):
     #     zip_buffer = io.BytesIO()

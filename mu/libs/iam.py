@@ -5,6 +5,7 @@ import json
 import logging
 
 import boto3
+from methodtools import lru_cache
 
 from mu.config import Config
 
@@ -41,9 +42,10 @@ def policy_doc(*actions, resource=None, principal=None, effect='Allow', conditio
 
 
 class Policy:
-    def __init__(self, iam, rec: dict):
+    def __init__(self, b3_sess, iam, rec: dict):
         self.iam = iam
         self.rec = rec
+        self.b3_sess = b3_sess
 
     def __getattr__(self, item: str):
         aws_name = item.replace('_', ' ').title().replace(' ', '')
@@ -54,8 +56,8 @@ class Policy:
         raise AttributeError(item)
 
     @classmethod
-    def get(cls, iam, arn):
-        return cls(iam, iam.get_policy(PolicyArn=arn)['Policy'])
+    def get(cls, b3_sess, iam, arn):
+        return cls(b3_sess, iam, iam.get_policy(PolicyArn=arn)['Policy'])
 
     @classmethod
     def list(cls, b3_iam, scope='Local'):
@@ -89,6 +91,12 @@ class Policy:
         for attachment in self.role_attachments():
             self.iam.detach_role_policy(RoleName=attachment['RoleName'], PolicyArn=self.arn)
 
+        policy_arn = self.rec['Arn']
+        if sts.account_id(self.b3_sess) not in policy_arn:
+            # An AWS managed role (e.v. AWSLambdaVPCAccessExecutionRole), can't delete.
+            log.info('Not deleting external policy: %s', policy_arn)
+            return
+
         for version in self.versions():
             # Can't delete default version
             if version['IsDefaultVersion']:
@@ -104,8 +112,9 @@ class Policy:
             policy.delete()
 
     @classmethod
-    def create(cls, b3_iam, name: str, doc: dict):
+    def create(cls, b3_sess, b3_iam, name: str, doc: dict):
         return cls(
+            b3_sess,
             b3_iam,
             b3_iam.create_policy(
                 PolicyName=name,
@@ -119,32 +128,32 @@ class Policy:
 
 class Policies:
     def __init__(self, b3_sess):
-        self.policies: dict[str:Policy] = None
-
         self.iam = b3_sess.client('iam')
+        self.b3_sess = b3_sess
 
-    def load(self):
-        if self.policies is not None:
-            return
-
+    @lru_cache()
+    def list(self, prefix=None):
         policies = self.iam.list_policies(Scope='Local')['Policies']
-        self.policies = {policy['PolicyName']: Policy(self.iam, policy) for policy in policies}
+        return {
+            policy['PolicyName']: Policy(self.b3_sess, self.iam, policy)
+            for policy in policies
+            if prefix is None or policy['PolicyName'].startswith(prefix)
+        }
+
+    @property
+    def policies(self):
+        return self.list()
 
     def clear(self):
-        self.policies = None
+        self.list.cache_clear()
 
     def get(self, name) -> Policy:
-        self.load()
-
         return self.policies.get(name)
 
     def add(self, policy: Policy):
-        self.load()
         self.policies[policy.policy_name] = policy
 
     def delete(self, *names):
-        self.load()
-
         for name in names:
             if name not in self.policies:
                 continue
@@ -173,7 +182,7 @@ class Roles:
 
         for idents in attached.get('AttachedPolicies', []):
             policy_arn = idents['PolicyArn']
-            policy = Policy.get(self.iam, policy_arn)
+            policy = Policy.get(self.b3_sess, self.iam, policy_arn)
             policy.delete()
             log.info('Policy deleted: %s', policy_arn)
 
@@ -240,7 +249,7 @@ class Roles:
         policy = self.policies.get(policy_name)
 
         if not policy:
-            policy = Policy.create(self.iam, policy_name, policy_doc)
+            policy = Policy.create(self.b3_sess, self.iam, policy_name, policy_doc)
             self.policies.add(policy)
             log.info(f'Policy created: {policy_name}')
 
@@ -258,3 +267,13 @@ class Roles:
             RoleName=role_name,
             PolicyArn=policy.arn,
         )
+
+    def attach_managed_policy(self, role_name, policy_name: str):
+        # TODO: might not want /service-role/ at this level
+        policy_arn = f'arn:aws:iam::aws:policy/service-role/{policy_name}'
+
+        self.iam.attach_role_policy(
+            RoleName=role_name,
+            PolicyArn=policy_arn,
+        )
+        log.info(f'Attaching managed policy: {policy_name}')

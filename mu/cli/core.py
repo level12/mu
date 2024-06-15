@@ -1,3 +1,4 @@
+import itertools
 import logging
 from pathlib import Path
 from pprint import pprint
@@ -6,16 +7,12 @@ import click
 import colorlog
 
 import mu.config
-from mu.config import Config
+from mu.config import Config, cli_load
 from mu.libs import api_gateway, auth, sqs, sts, utils
 from mu.libs.lamb import Lambda
 
 
 log = logging.getLogger()
-
-
-def load_config(env) -> mu.config.Config:
-    return mu.config.load(Path.cwd(), env or mu.config.default_env())
 
 
 @click.group()
@@ -50,7 +47,7 @@ def cli(ctx, quiet, verbose):
 @click.argument('target_env', required=False)
 def auth_check(target_env):
     """Check AWS auth by displaying account info"""
-    config: Config = load_config(target_env)
+    config: Config = cli_load(target_env)
     b3_sess = auth.b3_sess(config.aws_region)
     acct_id: str = sts.account_id(b3_sess)
     print('Account:', acct_id)
@@ -69,20 +66,19 @@ def auth_check(target_env):
 @click.option('--resolve-env', is_flag=True, help='Show env after resolution (e.g. secrets)')
 def config(target_env: str, resolve_env: bool):
     """Display mu config for active project"""
-    config: Config = load_config(target_env)
+    config: Config = cli_load(target_env)
 
     utils.print_dict(config.for_print(resolve_env))
 
 
 @cli.command()
 @click.argument('envs', nargs=-1)
-@click.pass_context
-def provision(ctx, envs: list[str]):
+def provision(envs: list[str]):
     """Provision lambda function in environment given (or default)"""
     envs = envs or [None]
 
     for env in envs:
-        lamb = Lambda(load_config(env))
+        lamb = Lambda(cli_load(env))
         lamb.provision()
 
 
@@ -94,7 +90,7 @@ def deploy(ctx, envs: list[str], build: bool):
     """Deploy local image to ecr, update lambda"""
     envs = envs or [mu.config.default_env()]
 
-    configs = [load_config(env) for env in envs]
+    configs = [cli_load(env) for env in envs]
 
     if build:
         service_names = [config.compose_service for config in configs]
@@ -110,7 +106,7 @@ def deploy(ctx, envs: list[str], build: bool):
 @click.option('--force-repo', is_flag=True)
 def delete(target_env: str, force_repo: bool):
     """Delete lambda and optionally related infra"""
-    lamb = Lambda(load_config(target_env))
+    lamb = Lambda(cli_load(target_env))
     lamb.delete(target_env, force_repo=force_repo)
 
 
@@ -119,7 +115,7 @@ def delete(target_env: str, force_repo: bool):
 def build(target_env: str):
     """Build lambda container with docker compose"""
 
-    conf = load_config(target_env)
+    conf = cli_load(target_env)
     utils.compose_build(conf.compose_service)
 
 
@@ -133,7 +129,7 @@ def build(target_env: str):
 def invoke(ctx, target_env: str, action: str, host: str, action_args: list, local: bool):
     """Invoke lambda with diagnostics or given action"""
 
-    lamb = Lambda(load_config(target_env))
+    lamb = Lambda(cli_load(target_env))
     if local:
         result = lamb.invoke_rei(host, action, action_args)
     else:
@@ -148,12 +144,25 @@ def invoke(ctx, target_env: str, action: str, host: str, action_args: list, loca
 
 @cli.command()
 @click.argument('target_env', required=False)
-@click.option('--limit', default=30)
-@click.option('--reverse', is_flag=True)
+@click.option('--first', default=0)
+@click.option('--last', default=0)
+@click.option('--streams', is_flag=True)
 @click.pass_context
-def lambda_logs(ctx, target_env: str, limit: int, reverse: bool):
-    lamb = Lambda(load_config(target_env))
-    lamb.logs(limit, reverse)
+def lambda_logs(
+    ctx: click.Context,
+    target_env: str,
+    first: int,
+    last: int,
+    streams: bool,
+):
+    if first and last:
+        ctx.fail('Give --first or --last, not both')
+
+    if not first and not last:
+        last = 10 if streams else 25
+
+    lamb = Lambda(cli_load(target_env))
+    lamb.logs(first, last, streams)
 
 
 @cli.command()

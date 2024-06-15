@@ -32,24 +32,33 @@ def config():
 
 
 class TestLambda:
-    role_name = 'greek-mu-lambda-func-qa'
-    logs_policy = f'{role_name}-logs'
-    ecr_repo_policy = f'{role_name}-ecr-repo'
-    repo_name = role_name
+    res_ident = 'greek-mu-lambda-func-qa'
+    logs_policy = f'{res_ident}-logs'
+    ecr_repo_policy = f'{res_ident}-ecr-repo'
+    sqs_policy = f'{res_ident}-sqs-queues'
+    repo_name = res_ident
 
     @pytest.fixture(autouse=True)
     def reset_aws(self, roles, policies, repos):
-        roles.delete(self.role_name)
+        roles.delete(self.res_ident)
         policies.delete(self.logs_policy, self.ecr_repo_policy)
         repos.delete(self.repo_name, force=True)
 
-    def test_provision_role(self, b3_sess, policies, roles, caplog):
+    def test_provision_role(
+        self,
+        b3_sess,
+        policies: iam.Policies,
+        roles,
+        caplog,
+        aws_acct_id,
+        aws_region,
+    ):
         caplog.set_level(logging.INFO)
 
         anon = Lambda(config(), b3_sess)
         anon.provision_role()
 
-        role = roles.get(self.role_name)
+        role = roles.get(self.res_ident)
         assert role['AssumeRolePolicyDocument'] == {
             'Statement': [
                 {
@@ -62,6 +71,9 @@ class TestLambda:
             'Version': '2012-10-17',
         }
 
+        pols = policies.list(prefix=self.res_ident)
+        assert len(pols) == 3
+
         policy = policies.get(self.ecr_repo_policy)
         assert policy.document == {
             'Version': '2012-10-17',
@@ -72,7 +84,7 @@ class TestLambda:
                         'ecr:BatchGetImage',
                         'ecr:BatchCheckLayerAvailability',
                     ],
-                    'Resource': f'arn:aws:iam::429829037495:role/{self.role_name}',
+                    'Resource': f'arn:aws:ecr:{aws_region}:{aws_acct_id}:repository/{self.res_ident}',  # noqa
                     'Effect': 'Allow',
                 },
             ],
@@ -90,20 +102,42 @@ class TestLambda:
             ],
         }
 
+        policy = policies.get(self.sqs_policy)
+        assert policy.document == {
+            'Version': '2012-10-17',
+            'Statement': [
+                {
+                    'Action': [
+                        'sqs:SendMessage',
+                        'sqs:ReceiveMessage',
+                        'sqs:DeleteMessage',
+                        'sqs:GetQueueAttributes',
+                        'sqs:GetQueueUrl',
+                        'sqs:ChangeMessageVisibility',
+                        'sqs:PurgeQueue',
+                    ],
+                    'Resource': f'arn:aws:sqs:{aws_region}:{aws_acct_id}:{self.res_ident}-*',
+                    'Effect': 'Allow',
+                },
+            ],
+        }
+
         # Should be able to run it with existing resources and not get any errors.
         anon.provision_role()
 
         log_messages = [rec.message for rec in caplog.records]
 
         assert log_messages == [
-            f'Role created: {self.role_name}',
+            f'Role created: {self.res_ident}',
             f'Policy created: {self.logs_policy}',
             f'Policy created: {self.ecr_repo_policy}',
             'Policy created: greek-mu-lambda-func-qa-sqs-queues',
-            f'Role existed, assume role policy updated: {self.role_name}',
+            'Attaching managed policy: AWSLambdaVPCAccessExecutionRole',
+            f'Role existed, assume role policy updated: {self.res_ident}',
             f'Policy existed, document current: {self.logs_policy}',
             f'Policy existed, document current: {self.ecr_repo_policy}',
             'Policy existed, document current: greek-mu-lambda-func-qa-sqs-queues',
+            'Attaching managed policy: AWSLambdaVPCAccessExecutionRole',
         ]
 
     def test_provision_repo(self, b3_sess, repos: ecr.Repos, caplog):
@@ -114,22 +148,6 @@ class TestLambda:
 
         caplog.clear()
         anon.provision_repo()
-
-        repo = repos.get(self.repo_name)
-        assert repo.get_policy() == {
-            'Version': '2012-10-17',
-            'Statement': [
-                {
-                    'Action': [
-                        'ecr:GetDownloadUrlForLayer',
-                        'ecr:BatchGetImage',
-                        'ecr:BatchCheckLayerAvailability',
-                    ],
-                    'Principal': {'AWS': f'arn:aws:iam::429829037495:role/{self.role_name}'},
-                    'Effect': 'Allow',
-                },
-            ],
-        }
 
         anon.provision_repo()
         log_messages = [rec.message for rec in caplog.records if 'Waiting' not in rec.message]

@@ -1,5 +1,6 @@
 # Put under [tool.mu] in pyproject.toml
 project-org = 'Starfleet' # required
+image-name = 'mu-flask'
 
 [aws.sqs.celery]
 # Set to the longest expected runtime of a celery task plus a margin.

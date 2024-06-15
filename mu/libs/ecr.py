@@ -195,12 +195,9 @@ class Repos:
         self.b3_sess = b3_sess
         self.ecr = b3_sess.client('ecr')
 
-    @functools.cached_property
-    def aws_acct_id(self):
-        return sts.account_id(self.b3_sess)
-
-    def arn(self, repo_name: str):
-        return f'arn:aws:ecr:{self.aws_region}:{self.aws_acct_id}:repository/{repo_name}'
+    # @functools.cached_property
+    # def aws_acct_id(self):
+    #     return sts.account_id(self.b3_sess)
 
     def clear(self):
         self.list.cache_clear()
@@ -246,11 +243,11 @@ class Repos:
         except self.ecr.exceptions.RepositoryAlreadyExistsException:
             log.info(f'Repository existed: {repo_name}')
 
-        # Give the role the lambda will use permissions on this repo
-        principal = {'AWS': role_arn}
-        policy = iam.policy_doc(*self.policy_actions, principal=principal)
+        # # Give the role the lambda will use permissions on this repo
+        # principal = {'AWS': role_arn}
+        # policy = iam.policy_doc(*self.policy_actions, principal=principal)
 
-        RetryingSetRepoPolicy.run(self.ecr, repo_name, json.dumps(policy))
+        # RetryingSetRepoPolicy.run(self.ecr, repo_name, json.dumps(policy))
 
         return self.get(repo_name, wait=True)
 

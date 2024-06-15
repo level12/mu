@@ -1,11 +1,9 @@
-from pathlib import Path
 from pprint import pprint
 
 import click
 
-import mu.config
 from mu.config import Config
-from mu.libs import auth, ecr, utils
+from mu.libs import auth, ecr
 from mu.libs.lamb import Lambda
 
 from ..cli import cli

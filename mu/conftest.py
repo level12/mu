@@ -16,6 +16,16 @@ def b3_sess():
     return sess
 
 
+@pytest.fixture(scope='session')
+def aws_acct_id(b3_sess):
+    return sts.account_id(b3_sess)
+
+
+@pytest.fixture(scope='session')
+def aws_region(b3_sess):
+    return b3_sess.region_name
+
+
 @pytest.fixture
 def logs(caplog):
     return testing.Logs(caplog)

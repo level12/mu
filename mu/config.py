@@ -57,15 +57,20 @@ class Config:
     _deployed_env: dict[str, str] = field(default_factory=dict)
     event_rules: dict[str, dict[str, str]] = field(default_factory=dict)
     policy_arns: list[str] = field(default_factory=list)
+    vpc_subnet_names: list[str] = field(default_factory=list)
+    vpc_subnet_name_tag_key: str = 'Name'
+    vpc_security_group_names: list[str] = field(default_factory=list)
 
     def apply_sess(self, sess: boto3.Session):
         self.aws_region = sess.region_name
         try:
             self.aws_acct_id = sts.account_id(sess)
         except Exception as e:
-            if 'NoCredentialsError' not in str(type(e)):
-                raise
-            log.warning('No AWS credentials found')
+            exc_str = str(type(e))
+            if 'NoCredentialsError' in exc_str or 'ExpiredToken' in exc_str:
+                log.warning('No AWS credentials found')
+                return
+            raise
 
     @property
     def project_env(self, env_name: str):
@@ -94,6 +99,14 @@ class Config:
     @property
     def role_arn(self):
         return f'arn:aws:iam::{self.aws_acct_id}:role/{self.resource_ident}'
+
+    @property
+    def function_arn(self):
+        return f'arn:aws:lambda:{self.aws_region}:{self.aws_acct_id}:function:{self.lambda_ident}'
+
+    @property
+    def repo_arn(self):
+        return f'arn:aws:ecr:{self.aws_region}:{self.aws_acct_id}:repository/{self.resource_ident}'
 
     @property
     def sqs_resource(self):
@@ -173,9 +186,26 @@ def load(start_at: Path, env: str):
         action_key=deep_get(config, key_prefix, 'lambda-action-key', default='do-action'),
         _deployed_env=deep_get(config, key_prefix, 'deployed-env', default={}),
         event_rules=deep_get(config, key_prefix, 'event-rules', default={}),
-        lambda_memory=deep_get(config, key_prefix, 'lambda_memory', default=2048),
-        lambda_timeout=deep_get(config, key_prefix, 'lambda_timeout', default=900),
-        policy_arns=deep_get(config, key_prefix, 'policy_arns', default=[]),
+        lambda_memory=deep_get(config, key_prefix, 'lambda-memory', default=2048),
+        lambda_timeout=deep_get(config, key_prefix, 'lambda-timeout', default=900),
+        policy_arns=deep_get(config, key_prefix, 'policy-arns', default=()),
         aws_config=deep_get(config, key_prefix, 'aws', default={}),
         compose_service=deep_get(config, key_prefix, 'compose-service', default='app'),
+        vpc_subnet_names=deep_get(config, key_prefix, 'vpc-subnet-names', default=()),
+        vpc_subnet_name_tag_key=deep_get(
+            config,
+            key_prefix,
+            'vpc-subnet-name-tag-key',
+            default='Name',
+        ),
+        vpc_security_group_names=deep_get(
+            config,
+            key_prefix,
+            'vpc-security-group-names',
+            default=(),
+        ),
     )
+
+
+def cli_load(env) -> Config:
+    return load(Path.cwd(), env or default_env())

@@ -11,6 +11,7 @@ import tempfile
 import time
 import uuid
 
+import arrow
 from cryptography.fernet import Fernet
 
 
@@ -131,3 +132,11 @@ def compose_build(*service_names):
         '--pull',
         *service_names,
     )
+
+
+def log_time(timestamp: str) -> arrow.Arrow:
+    return arrow.get(int(timestamp))
+
+
+def log_fmt(time: arrow.Arrow) -> str:
+    return time.format('YYYY-MM-DD HH:mm')
