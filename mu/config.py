@@ -116,8 +116,14 @@ class Config:
         return self.aws_config.get(kind, {})
 
     def resolve_env(self, env_val: str):
-        if not env_val.startswith('op://'):
-            return env_val
+        if env_val is False:
+            return ''
+
+        if env_val is True:
+            return 'true'
+
+        if not isinstance(env_val, str) or not env_val.startswith('op://'):
+            return str(env_val)
 
         result = utils.sub_run('op', 'read', '-n', env_val, capture_output=True)
         return result.stdout.decode('utf-8')
