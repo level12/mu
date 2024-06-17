@@ -51,6 +51,10 @@ class ActionHandler:
 
     @staticmethod
     def log_example(event, context):
+        try:
+            raise Exception()
+        except Exception:
+            log.exception('This is an exception')
         log.error('This is an error')
         log.warning('This is a warning')
         log.info('This is an info log')
