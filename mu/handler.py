@@ -32,7 +32,7 @@ class ActionHandler:
         try:
             keys = set(event.keys())
             wsgi_keys = {'headers', 'requestContext', 'routeKey', 'rawPath'}
-            if cls.wsgi_app and wsgi_keys.issubset(keys):
+            if wsgi_keys.issubset(keys) and cls.wsgi_app:
                 return cls.wsgi(event, context)
 
             return cls.on_action('do-action', event, context)
