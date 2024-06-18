@@ -1,7 +1,7 @@
 import itertools
 import json
 import logging
-from pprint import pformat
+from pprint import pformat, pprint
 import textwrap
 
 import arrow
@@ -469,6 +469,7 @@ class Lambda:
         indent_lev_2 = ' ' * 7
         func_event: dict = None
         func_context: dict = None
+        rec = {}
 
         def print_wrap(*args):
             line = ' '.join(str(arg) for arg in args)
@@ -506,11 +507,7 @@ class Lambda:
                 )
                 if st_lines := rec.get('stackTrace'):
                     print('')
-                    for line_pair in st_lines:
-                        top, bottom = line_pair.splitlines()
-                        print(indent_lev_1 + ' ', top.strip())
-                        print(indent_lev_2, bottom.strip())
-                    print('')
+                    print(textwrap.indent(''.join(st_lines), '   '))
                     print(
                         indent_lev_1 + '  ',
                         rec.get('errorType', '') + ': ',
@@ -551,7 +548,11 @@ class Lambda:
                     sep='',
                 )
         except Exception:
-            log.exception('Unexpected log event structure: %s', pformat(event))
+            log.exception('Unexpected log event structure.  Event follows.')
+            for k, v in (event | rec).items():
+                if k == 'message' and rec:
+                    continue
+                print('     ', k, v)
 
     # def placeholder_zip(self):
     #     zip_buffer = io.BytesIO()

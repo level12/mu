@@ -1,7 +1,7 @@
    2024-06-18T02:07:06Z ERROR climate.aws had an error
 
      File "/app/climate/aws.py", line 128, in log_json
-        raise Exception('with some text')
+       raise Exception('with some text')
 
      Exception: with some text
 
