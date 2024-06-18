@@ -8,10 +8,24 @@ import awsgi2
 
 log = logging.getLogger(__name__)
 
+base64_content_types = {
+    'application/octet-stream',
+    'image/jpeg',
+    'image/png',
+    'application/pdf',
+    'application/vnd.ms-fontobject',
+    'application/x-font-ttf',
+    'font/ttf',
+    'application/font-woff',
+    'font/woff',
+    'font/woff2',
+}
+
 
 class ActionHandler:
     # TODO: create method that will list all possible actions
     wsgi_app = None
+    base64_content_types = base64_content_types
 
     @classmethod
     def on_event(cls, event, context):
@@ -101,7 +115,12 @@ class ActionHandler:
 
     @classmethod
     def wsgi(cls, event, context):
-        return awsgi2.response(cls.wsgi_app, event, context, base64_content_types={'image/png'})
+        return awsgi2.response(
+            cls.wsgi_app,
+            event,
+            context,
+            base64_content_types=cls.base64_content_types,
+        )
 
     @staticmethod
     def error(event: dict, context: dict):
