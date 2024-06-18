@@ -1,7 +1,5 @@
 import logging
 import os
-from pprint import pformat
-import traceback
 
 import awsgi2
 
@@ -12,6 +10,7 @@ base64_content_types = {
     'application/octet-stream',
     'image/jpeg',
     'image/png',
+    'image/x-icon',
     'application/pdf',
     'application/vnd.ms-fontobject',
     'application/x-font-ttf',
@@ -37,7 +36,7 @@ class ActionHandler:
                 return cls.wsgi(event, context)
 
             return cls.on_action('do-action', event, context)
-        except Exception as e:
+        except Exception:
             log.exception(
                 'ActionHandler.on_event() caught an unhandled exception',
                 extra=cls.diagnostics(event, context),
