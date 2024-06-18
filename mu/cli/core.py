@@ -68,6 +68,9 @@ def config(target_env: str, resolve_env: bool):
     """Display mu config for active project"""
     config: Config = cli_load(target_env)
 
+    sess = auth.b3_sess(config.aws_region)
+    config.apply_sess(sess)
+
     utils.print_dict(config.for_print(resolve_env))
 
 
@@ -148,7 +151,7 @@ def invoke(ctx, target_env: str, action: str, host: str, action_args: list, loca
 @click.option('--last', default=0)
 @click.option('--streams', is_flag=True)
 @click.pass_context
-def lambda_logs(
+def logs(
     ctx: click.Context,
     target_env: str,
     first: int,

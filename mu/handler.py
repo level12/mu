@@ -1,5 +1,7 @@
 import logging
 import os
+from pprint import pformat
+import traceback
 
 import awsgi2
 
@@ -14,13 +16,20 @@ class ActionHandler:
     @classmethod
     def on_event(cls, event, context):
         """The entry point for AWS lambda"""
+        try:
+            keys = set(event.keys())
+            wsgi_keys = {'headers', 'requestContext', 'routeKey', 'rawPath'}
+            if cls.wsgi_app and wsgi_keys.issubset(keys):
+                return cls.wsgi(event, context)
 
-        keys = set(event.keys())
-        wsgi_keys = {'headers', 'requestContext', 'routeKey', 'rawPath'}
-        if cls.wsgi_app and wsgi_keys.issubset(keys):
-            return cls.wsgi(event, context)
-
-        return cls.on_action('do-action', event, context)
+            return cls.on_action('do-action', event, context)
+        except Exception as e:
+            log.exception(
+                'ActionHandler.on_event() caught an unhandled exception\nEvent: %s\nContext: %s',
+                pformat(event),
+                pformat(context),
+            )
+            return 'Internal Server Error'
 
     @staticmethod
     def ping(event, context):
@@ -72,7 +81,7 @@ class ActionHandler:
     def on_action(cls, action_key, event, context):
         action = event.get(action_key)
 
-        log.info(f'Handler invoked with action: {action}')
+        log.info(f'ActionHandler invoked with action: {action}')
 
         if action is None:
             msg = f'Action key "{action_key}" not found in event'

@@ -1,8 +1,6 @@
-from pathlib import Path
-
-from mu import ActionHandler, config
-from mu.libs.testing import mock_patch_obj
-from mu.tests.events.wsgi import wsgi_event
+from mu import ActionHandler
+from mu.libs.testing import Logs
+from mu.tests.data.event_wsgi import wsgi_event
 
 
 def wsgi_app(environ, start_response):
@@ -37,3 +35,17 @@ class TestHandler:
         event = {'do-action': 'hello'}
         resp = Handler.on_event(event, {})
         assert resp == 'world'
+
+    def test_unhandled_exception(self, logs: Logs, caplog):
+        event = {'do-action': 'error'}
+        resp = Handler.on_event(event, {})
+        assert resp == 'Internal Server Error'
+
+        assert logs.messages == [
+            'ActionHandler invoked with action: error',
+            """ActionHandler.on_event() caught an unhandled exception
+Event: {'do-action': 'error'}
+Context: {}""",
+        ]
+
+        assert caplog.records[1].exc_info

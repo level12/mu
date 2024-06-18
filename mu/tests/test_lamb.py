@@ -5,7 +5,8 @@ import pytest
 import mu.config
 from mu.libs import ecr, iam
 from mu.libs.lamb import Lambda
-from mu.libs.testing import Logs
+from mu.libs.testing import Logs, data_read
+from mu.tests.data import log_events
 
 
 @pytest.fixture
@@ -162,3 +163,22 @@ class TestLambda:
         anon.provision()
 
         assert logs.messages[-1] == 'Provision finished for: greek-mu-func-qa'
+
+
+class TestLambdaLogs:
+    def check_event(self, capsys, event: dict, fname: str):
+        Lambda.log_event_print(event)
+        expected = data_read(fname)
+        assert capsys.readouterr().out.strip() == expected.strip()
+
+    def test_platform_report(self, capsys):
+        self.check_event(capsys, log_events.platform_report, 'platform-report.txt')
+
+    def test_platform_start(self, capsys):
+        self.check_event(capsys, log_events.platform_start, 'platform-start.txt')
+
+    def test_unhandled_exc(self, capsys):
+        self.check_event(capsys, log_events.unhandled_exc, 'unhandled-exc.txt')
+
+    def test_text_message(self, capsys):
+        self.check_event(capsys, log_events.text_message, 'text-message.txt')

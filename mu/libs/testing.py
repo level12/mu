@@ -1,5 +1,8 @@
 import logging
+from pathlib import Path
 from unittest import mock
+
+from mu.tests import data
 
 
 def mock_patch_obj(*args, **kwargs):
@@ -22,3 +25,7 @@ class Logs:
     @property
     def messages(self):
         return [rec.message for rec in self.caplog.records]
+
+
+def data_read(fname):
+    return Path(data.__file__).parent.joinpath(fname).read_text()

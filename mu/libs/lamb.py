@@ -1,6 +1,7 @@
 import itertools
 import json
 import logging
+from pprint import pformat
 import textwrap
 
 import arrow
@@ -462,48 +463,73 @@ class Lambda:
         events = reversed(resp['events']) if desc else resp['events']
         yield from events
 
-    def log_event_print(self, event: dict):
-        padding = ' ' * 3
+    @classmethod
+    def log_event_print(cls, event: dict):
+        indent_lev_1 = ' ' * 3
+        indent_lev_2 = ' ' * 7
 
-        def pevent(*args):
+        def print_wrap(*args):
             line = ' '.join(str(arg) for arg in args)
-            lines = textwrap.wrap(line, 100, initial_indent=padding, subsequent_indent=' ' * 7)
+            lines = textwrap.wrap(
+                line,
+                100,
+                initial_indent=indent_lev_1,
+                subsequent_indent=indent_lev_2,
+            )
             print('\n'.join(lines))
 
         try:
-            rec: dict = json.loads(event['message'])
+            message: str = event['message']
+            parts = message.split('\r{"', 1)
+
+            if len(parts) > 1:
+                message = parts[0]
+                rec: dict = json.loads('{"' + parts[1])
+            elif message.startswith('{"'):
+                rec: dict = json.loads(message)
+            else:
+                ts = arrow.get(int(event['timestamp']))
+                print_wrap(ts.format('YYYY-MM-DDTHH:mm:ss[Z]'), message)
+                return
+
             rec_type = rec.get('type')
             if rec_type is None:
-                pevent(
+                print_wrap(
                     rec['timestamp'],
                     rec.get('log_level') or rec['level'],
                     rec.get('logger', ''),
-                    rec.get('message', ''),
+                    rec.get('message', message),
                 )
                 if st_lines := rec.get('stackTrace'):
-                    pevent(''.join(st_lines))
-                    pevent(rec.get('errorType', '') + ':', rec.get('errorMessage', ''))
+                    print('')
+                    for line_pair in st_lines:
+                        top, bottom = line_pair.splitlines()
+                        print(indent_lev_1 + ' ', top.strip())
+                        print(indent_lev_2, bottom.strip())
+                    print('')
+                    print(
+                        indent_lev_1 + ' ',
+                        rec.get('errorType', '') + ':',
+                        rec.get('errorMessage', ''),
+                        '\n',
+                    )
 
             elif rec_type == 'platform.start':
-                pevent(rec['time'], rec_type, 'version:', rec['record']['version'])
+                print('  ', rec['time'], rec_type, 'version:', rec['record']['version'])
             elif rec_type in (
                 'platform.report',
                 'platform.initReport',
                 'platform.runtimeDone',
             ):
                 record = rec['record']
-                pevent(rec['time'], rec_type)
-                pevent('   ', 'status:', record['status'])
+                print('  ', rec['time'], rec_type)
+                print(indent_lev_2, 'status:', record['status'])
                 for metric, value in record['metrics'].items():
-                    pevent('   ', f'{metric}:', value)
+                    print(indent_lev_2, f'{metric}:', value)
             else:
-                pevent(rec)
-        except json.JSONDecodeError:
-            try:
-                ts = arrow.get(int(event['timestamp']))
-                pevent(ts.format('YYYY-MM-DDTHH:mm:ss[Z]'), event['message'])
-            except KeyError:
-                pevent('JSON decode error', event)
+                print(rec)
+        except Exception:
+            log.exception('Unexpected log event structure: %s', pformat(event))
 
     # def placeholder_zip(self):
     #     zip_buffer = io.BytesIO()

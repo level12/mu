@@ -1,0 +1,6 @@
+    2024-06-17T17:23:55.826Z platform.report
+        status: success
+        durationMs: 18.593
+        billedDurationMs: 19
+        memorySizeMB: 2048
+        maxMemoryUsedMB: 246
