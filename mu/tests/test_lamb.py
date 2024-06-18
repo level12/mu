@@ -182,3 +182,6 @@ class TestLambdaLogs:
 
     def test_text_message(self, capsys):
         self.check_event(capsys, log_events.text_message, 'text-message.txt')
+
+    def test_exc_extras(self, capsys):
+        self.check_event(capsys, log_events.exc_extras, 'exc-extras.txt')

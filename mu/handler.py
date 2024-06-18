@@ -25,9 +25,8 @@ class ActionHandler:
             return cls.on_action('do-action', event, context)
         except Exception as e:
             log.exception(
-                'ActionHandler.on_event() caught an unhandled exception\nEvent: %s\nContext: %s',
-                pformat(event),
-                pformat(context),
+                'ActionHandler.on_event() caught an unhandled exception',
+                extra=cls.diagnostics(event, context),
             )
             return 'Internal Server Error'
 

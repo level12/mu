@@ -21,6 +21,18 @@ class Handler(ActionHandler):
         return 'world'
 
 
+class FakeContext:
+    aws_request_id = None
+    log_group_name = None
+    log_stream_name = None
+    function_name = None
+    memory_limit_in_mb = None
+    function_version = None
+    invoked_function_arn = None
+    remaining_time = None
+    get_remaining_time_in_millis = lambda: None
+
+
 class TestHandler:
     def test_wsgi(self):
         resp = Handler.on_event(wsgi_event, {})
@@ -38,14 +50,12 @@ class TestHandler:
 
     def test_unhandled_exception(self, logs: Logs, caplog):
         event = {'do-action': 'error'}
-        resp = Handler.on_event(event, {})
+        resp = Handler.on_event(event, FakeContext)
         assert resp == 'Internal Server Error'
 
         assert logs.messages == [
             'ActionHandler invoked with action: error',
-            """ActionHandler.on_event() caught an unhandled exception
-Event: {'do-action': 'error'}
-Context: {}""",
+            'ActionHandler.on_event() caught an unhandled exception',
         ]
 
         assert caplog.records[1].exc_info

@@ -1,0 +1,19 @@
+   2024-06-18T02:07:06Z ERROR climate.aws had an error
+
+     File "/app/climate/aws.py", line 128, in log_json
+        raise Exception('with some text')
+
+     Exception: with some text
+
+     Context:
+       {'aws_request_id': 'b16742c9-fc88-48cd-b49a-da83582e3929',
+        'function_name': 'stax-residuals-func-rsyringmeld',
+        'function_version': '$LATEST',
+        'invoked_function_arn': 'arn:aws:lambda:us-east-2:637423305257:function:stax-residuals-func-rsyringmeld',
+        'log_group_name': '/aws/lambda/stax-residuals-func-rsyringmeld',
+        'log_stream_name': '2024/06/18/[$LATEST]227e6c26d73f4f61a661350d72d3e7e9',
+        'memory_limit_in_mb': '2048',
+        'remaining_time': 51486}
+
+     Event:
+       {'action-args': [], 'do-action': 'log-json'}

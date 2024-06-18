@@ -27,3 +27,10 @@ platform_init_report = {
     'message': '{"time":"2024-06-17T17:48:06.348Z","type":"platform.initReport","record":{"initializationType":"on-demand","phase":"init","status":"timeout","metrics":{"durationMs":10000.487}}}',
     'ingestionTime': 1718646486433,
 }
+
+
+exc_extras = {
+    'timestamp': 1718676426000,
+    'message': '{"timestamp": "2024-06-18T02:07:06Z", "level": "ERROR", "message": "had an error", "logger": "climate.aws", "stackTrace": ["  File \\"/app/climate/aws.py\\", line 128, in log_json\\n    raise Exception(\'with some text\')\\n"], "errorType": "Exception", "errorMessage": "with some text", "requestId": "b16742c9-fc88-48cd-b49a-da83582e3929", "location": "/app/climate/aws.py:log_json:130", "event": {"do-action": "log-json", "action-args": []}, "context": {"aws_request_id": "b16742c9-fc88-48cd-b49a-da83582e3929", "log_group_name": "/aws/lambda/stax-residuals-func-rsyringmeld", "log_stream_name": "2024/06/18/[$LATEST]227e6c26d73f4f61a661350d72d3e7e9", "function_name": "stax-residuals-func-rsyringmeld", "memory_limit_in_mb": "2048", "function_version": "$LATEST", "invoked_function_arn": "arn:aws:lambda:us-east-2:637423305257:function:stax-residuals-func-rsyringmeld", "remaining_time": 51486}}\n',
+    'ingestionTime': 1718676435252,
+}

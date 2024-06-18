@@ -467,6 +467,8 @@ class Lambda:
     def log_event_print(cls, event: dict):
         indent_lev_1 = ' ' * 3
         indent_lev_2 = ' ' * 7
+        func_event: dict = None
+        func_context: dict = None
 
         def print_wrap(*args):
             line = ' '.join(str(arg) for arg in args)
@@ -492,6 +494,8 @@ class Lambda:
                 print_wrap(ts.format('YYYY-MM-DDTHH:mm:ss[Z]'), message)
                 return
 
+            func_event: dict = rec.get('event')
+            func_context: dict = rec.get('context')
             rec_type = rec.get('type')
             if rec_type is None:
                 print_wrap(
@@ -508,10 +512,11 @@ class Lambda:
                         print(indent_lev_2, bottom.strip())
                     print('')
                     print(
-                        indent_lev_1 + ' ',
-                        rec.get('errorType', '') + ':',
+                        indent_lev_1 + '  ',
+                        rec.get('errorType', '') + ': ',
                         rec.get('errorMessage', ''),
                         '\n',
+                        sep='',
                     )
 
             elif rec_type == 'platform.start':
@@ -528,6 +533,23 @@ class Lambda:
                     print(indent_lev_2, f'{metric}:', value)
             else:
                 print(rec)
+
+            if func_context:
+                print(
+                    '     Context:\n',
+                    '       ',
+                    pformat(func_context).replace('\n', '\n       ').strip(),
+                    '\n',
+                    sep='',
+                )
+            if func_event:
+                print(
+                    '     Event:\n',
+                    '       ',
+                    pformat(func_event).replace('\n', '\n       '),
+                    '\n',
+                    sep='',
+                )
         except Exception:
             log.exception('Unexpected log event structure: %s', pformat(event))
 
