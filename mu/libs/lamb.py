@@ -104,7 +104,7 @@ class Lambda:
 
         log.info(f'Provision finished for: {self.config.lambda_ident}')
 
-    def ensure_func(self, env_name: str, image_uri: str):
+    def ensure_func(self, env_name: str, image_uri: str, func_url: str | None):
         func_name = self.config.lambda_ident
 
         log.info('Deploying lambda function')
@@ -131,6 +131,11 @@ class Lambda:
             ]
             log.info('Assigning security groups: %s - %s', ','.join(sec_group_names), group_ids)
 
+        env_vars = self.config.deployed_env
+        env_vars['MU_DEPLOYED_AT'] = arrow.get().isoformat()
+        if func_url:
+            env_vars['MU_FUNC_URL'] = func_url
+
         shared_config = {
             'FunctionName': func_name,
             'Role': self.config.role_arn,
@@ -143,7 +148,7 @@ class Lambda:
             },
             'VpcConfig': vpc_config,
             'Environment': {
-                'Variables': self.config.deployed_env,
+                'Variables': env_vars,
             },
         }
 
@@ -306,6 +311,8 @@ class Lambda:
         except self.exists_exc:
             resp = self.lc.get_function_url_config(FunctionName=func_arn)
             log.info('Function url config existed')
+        except self.not_found_exc:
+            return None
 
         try:
             # policy_stmt = iam.policy_doc(
@@ -336,16 +343,25 @@ class Lambda:
             )
             return
 
+        func_ident = self.config.lambda_ident
+        func_arn = self.config.function_arn
+        func_url = self.function_url(func_arn)
         image_tag: str = repo.push(self.config.image_name)
         image_uri = f'{repo.uri}:{image_tag}'
-        func_arn = self.ensure_func(env, image_uri)
+        self.ensure_func(env, image_uri, func_url)
+
+        # If the function was just created, the URL wasn't assigned.  Update the config to get the
+        # URL into the environment.  Slows down the first deploy but keeps the app from having to
+        # make an API to call get this info (and the permission ramifications that result).
+        if func_url is None:
+            log.info('Updating function to include function URL variable...')
+            self.wait_updated(func_ident)
+            func_url = self.function_url(func_arn)
+            self.ensure_func(env, image_uri, func_url)
 
         self.event_rules(env, func_arn)
         # TODO: offer api gateway as a config option
         # api = self.api_gateway(env, func_arn)
-        func_url = self.function_url(func_arn)
-
-        func_ident = self.config.lambda_ident
 
         # The newly deployed app takes a bit to become active.  Wait for it to avoid prompt
         # testing of the newly deployed changes from getting an older not-updated lambda.  Not fun.
