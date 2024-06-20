@@ -3,6 +3,8 @@ import os
 
 import awsgi2
 
+import mu.tasks
+
 
 log = logging.getLogger(__name__)
 
@@ -34,6 +36,10 @@ class ActionHandler:
             wsgi_keys = {'headers', 'requestContext', 'routeKey', 'rawPath'}
             if wsgi_keys.issubset(keys) and cls.wsgi_app:
                 return cls.wsgi(event, context)
+
+            if {'task-path', 'args', 'kwargs'}.issubset(keys):
+                mu.tasks.call_task(event)
+                return 'Called task'
 
             return cls.on_action('do-action', event, context)
         except Exception:

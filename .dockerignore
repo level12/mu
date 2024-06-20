@@ -1,0 +1,6 @@
+./events
+./misc
+./requirements
+./*.*
+*.pyc
+.git

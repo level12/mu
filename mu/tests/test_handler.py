@@ -1,5 +1,6 @@
 from mu import ActionHandler
-from mu.libs.testing import Logs
+from mu.libs.testing import Logs, mock_patch_obj
+from mu.tests import test_tasks
 from mu.tests.data.event_wsgi import wsgi_event
 
 
@@ -59,3 +60,15 @@ class TestHandler:
         ]
 
         assert caplog.records[1].exc_info
+
+    @mock_patch_obj(test_tasks, 'fake_task')
+    def test_task_event(self, m_fake_task):
+        event = {
+            'task-path': 'mu.tests.test_tasks:fake_task',
+            'args': ['a'],
+            'kwargs': {'arg2': 'b'},
+        }
+
+        assert Handler.on_event(event, FakeContext) == 'Called task'
+
+        m_fake_task.assert_called_once_with('a', arg2='b')

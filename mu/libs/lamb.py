@@ -35,6 +35,8 @@ class Lambda:
         'sqs:PurgeQueue',
     )
 
+    lambda_actions = ('lambda:InvokeFunction',)
+
     def __init__(self, config: Config, b3_sess: boto3.Session | None = None):
         self.config: Config = config
         self.b3_sess = b3_sess = b3_sess or auth.b3_sess(config.aws_region)
@@ -82,6 +84,10 @@ class Lambda:
 
         # Needed to create network interfaces and other vpc actions when it joins the vpc.
         self.roles.attach_managed_policy(role_name, 'AWSLambdaVPCAccessExecutionRole')
+
+        # Should be able to invoke our function
+        policy = iam.policy_doc(*self.lambda_actions, resource=self.config.function_arn)
+        self.roles.attach_policy(role_name, 'lambda', policy)
 
     def provision_repo(self):
         # TODO: can probably remove this once testing is fast enough that we don't need to run
@@ -389,7 +395,7 @@ class Lambda:
         response = self.lc.invoke(
             FunctionName=self.config.lambda_ident,
             # TODO: maybe enable 'Event' for InvocationType for async invocation
-            InvocationType='RequestResponse',
+            InvocationType='Event',
             Payload=bytes(json.dumps(event), encoding='utf8'),
         )
 

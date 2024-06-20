@@ -123,6 +123,35 @@ $ mu invoke --env enterprise
 ```
 
 
+## Usage: Async Tasks
+
+Async task workers without a broker/queue:
+
+```python
+from flask import Flask
+import mu
+
+app = Flask(__name__)
+
+
+@mu.task
+def ping_task(a, *, b):
+    print('ping_task()', a, b)
+
+
+@app.route('/ping')
+def ping():
+    # ping_task() will be called through async lambda invokation
+    ping_task.invoke(1, b=2)
+    return 'ok'
+```
+
+Be mindeful of:
+
+- [async invocation](https://docs.aws.amazon.com/lambda/latest/dg/invocation-async.html)
+- [retries](https://docs.aws.amazon.com/lambda/latest/dg/invocation-retries.html)
+
+
 ## Testing
 
 ### Credentials
