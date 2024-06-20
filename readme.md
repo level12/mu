@@ -144,6 +144,13 @@ def ping():
     # ping_task() will be called through async lambda invokation
     ping_task.invoke(1, b=2)
     return 'ok'
+
+
+@mu.task(lambda_func='this-app-bigger-lambda')
+def crunch_big_numbers(a, b, c):
+    """ You can change the lambda name but it still needs to be this app.  """
+    print('crunch_big_numbers()', a, b, c)
+
 ```
 
 Be mindeful of:
