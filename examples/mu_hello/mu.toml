@@ -1,5 +1,6 @@
 # Put under [tool.mu] in pyproject.toml
 project-org = 'Starfleet' # required
+image-name = 'mu-hello'
 
 lambda_memory = 2048  # MB; New account limit is 3008 MB
 lambda_timeout = 60  # seconds, max: 900

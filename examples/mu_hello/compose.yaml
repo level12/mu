@@ -1,5 +1,5 @@
 services:
-  mu-hello:
+  app:
     image: mu-hello:latest
     # The build key is important is it keeps our local docker building new images when changes
     # are made to the project.  Without it, once its built, it will keep using the image
