@@ -1,27 +1,14 @@
-from dataclasses import InitVar, asdict, dataclass
-from datetime import datetime
+from dataclasses import dataclass
 import functools
 import logging
-import pprint
 
 import boto3
-from methodtools import lru_cache
 
-from . import iam, sts, utils
+from . import sts, utils
+from .utils import B3DataClass
 
 
 log = logging.getLogger(__name__)
-
-
-@dataclass
-class B3DataClass:
-    b3_sess: InitVar[boto3.Session | None]
-
-    def __post_init__(self, b3_sess):
-        self._b3_sess = b3_sess
-
-    def __str__(self):
-        return pprint.pformat(asdict(self))
 
 
 @dataclass

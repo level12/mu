@@ -1,7 +1,7 @@
 import itertools
 import json
 import logging
-from pprint import pformat, pprint
+from pprint import pformat
 import textwrap
 
 import arrow

@@ -1,10 +1,12 @@
 import base64
+from dataclasses import InitVar, asdict, dataclass
 import getpass
 import hashlib
 import json
 import logging
 from pathlib import Path
 import platform
+import pprint
 import shlex
 import subprocess
 import tempfile
@@ -12,6 +14,7 @@ import time
 import uuid
 
 import arrow
+import boto3
 from cryptography.fernet import Fernet
 
 
@@ -140,3 +143,14 @@ def log_time(timestamp: str) -> arrow.Arrow:
 
 def log_fmt(time: arrow.Arrow) -> str:
     return time.format('YYYY-MM-DD HH:mm')
+
+
+@dataclass
+class B3DataClass:
+    b3_sess: InitVar[boto3.Session | None]
+
+    def __post_init__(self, b3_sess):
+        self._b3_sess = b3_sess
+
+    def __str__(self):
+        return pprint.pformat(asdict(self))

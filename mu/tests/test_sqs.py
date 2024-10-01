@@ -1,6 +1,5 @@
 import datetime as dt
 
-from boto3 import Session
 import pytest
 
 from ..libs import utils
@@ -20,8 +19,10 @@ def with_ms(value: str):
     return f'{value}-{now.microsecond}'
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True, scope='module')
 def cleanup(sqs):
+    sqs.delete('test-')
+    yield
     sqs.delete('test-')
 
 

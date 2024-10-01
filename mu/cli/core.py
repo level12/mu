@@ -1,6 +1,4 @@
-import itertools
 import logging
-from pathlib import Path
 from pprint import pprint
 
 import click

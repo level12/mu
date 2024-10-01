@@ -251,9 +251,9 @@ class Repos:
 
         return self.get(repo_name, wait=True)
 
-    def ecr_tags(self, *, prefix: str = '', limit=20):
+    def ecr_tags(self, repo_name, *, prefix: str = '', limit=20):
         response = self.ecr.describe_images(
-            repositoryName=self.ident,
+            repositoryName=repo_name,
         )
 
         tags = sorted(

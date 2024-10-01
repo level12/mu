@@ -1,5 +1,3 @@
-import contextlib
-from dataclasses import dataclass
 import functools
 import json
 import logging
@@ -7,9 +5,8 @@ import logging
 import boto3
 from methodtools import lru_cache
 
-from mu.config import Config
 
-from . import sts, utils
+from . import sts
 
 
 log = logging.getLogger(__name__)

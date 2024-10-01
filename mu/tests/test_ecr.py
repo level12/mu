@@ -1,5 +1,3 @@
-import logging
-from unittest import mock
 
 import docker
 import docker.errors
@@ -7,7 +5,6 @@ import pytest
 
 from mu.config import Config
 from mu.libs import ecr, iam
-from mu.libs.lamb import Lambda
 
 
 @pytest.fixture(scope='module')

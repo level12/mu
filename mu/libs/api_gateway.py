@@ -1,13 +1,11 @@
 from dataclasses import asdict, dataclass
 from datetime import datetime
-import functools
 import logging
 import pprint
 
 import boto3
 from methodtools import lru_cache
 
-from . import sts
 
 
 log = logging.getLogger(__name__)
