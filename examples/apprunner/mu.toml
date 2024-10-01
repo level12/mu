@@ -1,0 +1,7 @@
+project-org = 'Starfleet' # required
+image-name = 'mu-flask-ar'
+
+[app-runner]
+# Use App Runner instead of lambda
+cpu_num = 2
+memory = '4 GB'

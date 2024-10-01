@@ -3,7 +3,6 @@ import functools
 import logging
 from os import environ
 from pathlib import Path
-import subprocess
 import tomllib
 
 from blazeutils.strings import simplify_string as slug
@@ -47,6 +46,8 @@ class Config:
     _image_name: str = ''
     action_key: str = 'do-action'
     compose_service: str = 'app'  # for building
+    app_runner_cpus: str | None = None
+    app_runner_memory: str | None = None
     aws_config: dict = field(default_factory=dict)
     _project_ident: str = ''
     lambda_name: str = 'func'

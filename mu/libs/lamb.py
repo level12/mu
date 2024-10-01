@@ -101,6 +101,9 @@ class Lambda:
         else:
             self.sqs.delete(self.config.resource_ident)
 
+    def provision_app_runner(self):
+        pass
+
     def provision(self):
         """Provision AWS dependencies for the lambda function."""
 
