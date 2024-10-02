@@ -136,11 +136,7 @@ def invoke(ctx, target_env: str, action: str, host: str, action_args: list, loca
     else:
         result = lamb.invoke(action, action_args)
 
-    if isinstance(result, dict) and result.get('errorMessage'):
-        print(''.join(result.get('stackTrace', ())))
-        print(result.get('errorType'), result.get('errorMessage'))
-    else:
-        pprint(result)
+    print(result)
 
 
 @cli.command()

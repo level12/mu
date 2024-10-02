@@ -1,7 +1,11 @@
+from base64 import b64decode
+from dataclasses import dataclass
+import io
 import itertools
 import json
 import logging
 from pprint import pformat
+import sys
 import textwrap
 
 import arrow
@@ -15,6 +19,32 @@ from . import api_gateway, auth, ec2, ecr, iam, sqs, utils
 
 
 log = logging.getLogger(__name__)
+
+
+@dataclass
+class InvokeResp:
+    status_code: int
+    error: str | None
+    log_events: list
+    payload: dict | list | str | int | float | bool | None
+    executed_version: str | None
+
+    def __str__(self):
+        logs = io.StringIO()
+        for event in self.log_events:
+            # TODO: the formatting isn't quire right here.  The structure of the log events
+            # isn't the same here as it is for the log streams.
+            Lambda.log_event_print({'message': event}, file=logs)
+
+        return '\n'.join(
+            (
+                f'Status Code: {self.status_code}',
+                f'Executed Version: {self.executed_version}',
+                f'Error: {self.error}',
+                f'Payload: {self.payload}',
+                f'\nLogs >>>\n{logs.getvalue()}',
+            ),
+        )
 
 
 class Lambda:
@@ -397,12 +427,26 @@ class Lambda:
         event = {self.config.action_key: action, 'action-args': action_args}
         response = self.lc.invoke(
             FunctionName=self.config.lambda_ident,
-            # TODO: maybe enable 'Event' for InvocationType for async invocation
-            InvocationType='Event',
+            InvocationType='RequestResponse',
+            LogType='Tail',
             Payload=bytes(json.dumps(event), encoding='utf8'),
         )
+        payload = response['Payload'].read()
+        if payload:
+            payload = json.loads(payload)
+        logs = response.get('LogResult')
+        log_lines = []
+        if logs:
+            log_lines = [line.strip() for line in b64decode(logs).decode('utf-8').splitlines()]
+            log_lines = [line for line in log_lines if line.startswith('{"')]
 
-        return json.loads(response['Payload'].read())
+        return InvokeResp(
+            response['StatusCode'],
+            response.get('FunctionError'),
+            log_lines,
+            payload,
+            response.get('ExecutedVersion'),
+        )
 
     def invoke_rei(self, host, action: str, action_args: list):
         event = {self.config.action_key: action, 'action-args': action_args}
@@ -489,12 +533,13 @@ class Lambda:
         yield from events
 
     @classmethod
-    def log_event_print(cls, event: dict):
+    def log_event_print(cls, event: dict, file=None):
         indent_lev_1 = ' ' * 3
         indent_lev_2 = ' ' * 7
         func_event: dict = None
         func_context: dict = None
         rec = {}
+        file = file or sys.stdout
 
         def print_wrap(*args):
             line = ' '.join(str(arg) for arg in args)
@@ -504,7 +549,7 @@ class Lambda:
                 initial_indent=indent_lev_1,
                 subsequent_indent=indent_lev_2,
             )
-            print('\n'.join(lines))
+            print('\n'.join(lines), file=file)
 
         try:
             message: str = event['message']
@@ -531,30 +576,31 @@ class Lambda:
                     rec.get('message', message),
                 )
                 if st_lines := rec.get('stackTrace'):
-                    print('')
-                    print(textwrap.indent(''.join(st_lines), '   '))
+                    print('', file=file)
+                    print(textwrap.indent(''.join(st_lines), '   '), file=file)
                     print(
                         indent_lev_1 + '  ',
                         rec.get('errorType', '') + ': ',
                         rec.get('errorMessage', ''),
                         '\n',
                         sep='',
+                        file=file,
                     )
 
             elif rec_type == 'platform.start':
-                print('  ', rec['time'], rec_type, 'version:', rec['record']['version'])
+                print('  ', rec['time'], rec_type, 'version:', rec['record']['version'], file=file)
             elif rec_type in (
                 'platform.report',
                 'platform.initReport',
                 'platform.runtimeDone',
             ):
                 record = rec['record']
-                print('  ', rec['time'], rec_type)
-                print(indent_lev_2, 'status:', record['status'])
+                print('  ', rec['time'], rec_type, file=file)
+                print(indent_lev_2, 'status:', record['status'], file=file)
                 for metric, value in record['metrics'].items():
-                    print(indent_lev_2, f'{metric}:', value)
+                    print(indent_lev_2, f'{metric}:', value, file=file)
             else:
-                print(rec)
+                print(rec, file=file)
 
             if func_context:
                 print(
@@ -563,6 +609,7 @@ class Lambda:
                     pformat(func_context).replace('\n', '\n       ').strip(),
                     '\n',
                     sep='',
+                    file=file,
                 )
             if func_event:
                 print(
@@ -571,88 +618,11 @@ class Lambda:
                     pformat(func_event).replace('\n', '\n       '),
                     '\n',
                     sep='',
+                    file=file,
                 )
         except Exception:
             log.exception('Unexpected log event structure.  Event follows.')
             for k, v in (event | rec).items():
                 if k == 'message' and rec:
                     continue
-                print('     ', k, v)
-
-    # def placeholder_zip(self):
-    #     zip_buffer = io.BytesIO()
-
-    #     with zipfile.ZipFile(zip_buffer, 'a', zipfile.ZIP_DEFLATED, False) as zip_file:
-    #         zip_file.writestr('placeholder.py', placeholder_code)
-
-    #     # Move buffer position to beginning so it can be read from the start
-    #     zip_buffer.seek(0)
-
-    #     return zip_buffer.getvalue()
-
-    # def deploy(self, env_name, force_deps=False):
-    #     """Deploy source code as-is to lambda function."""
-    #     lambda_name = self.lambda_name(env_name)
-
-    #     reqs_fpath = reqs_dpath / 'aws.txt'
-    #     dist_dpath = pkg_dpath / 'dist-aws'
-    #     dist_app_dpath = dist_dpath / app_dname
-    #     app_dpath = pkg_dpath / app_dname
-    #     zip_fpath = pkg_dpath / f'{app_dname}-lambda.zip'
-
-    #     # TODO: use lambda layers and/or use detection to know when any reqs change.  See
-    #     # shiv utils for example.
-    #     if force_deps and dist_dpath.exists():
-    #         shutil.rmtree(dist_dpath)
-
-    #     dist_dpath.mkdir(exist_ok=True)
-
-    #     # TODO: why count?
-    #     if _child_count(dist_dpath) == 0:
-    #         log.info('Installing reqs to: %s', reqs_fpath)
-    #         _sub_run(
-    #             'pip',
-    #             'install',
-    #             '--platform',
-    #             'manylinux2014',
-    #             '--only-binary',
-    #             ':all:',
-    #             '--target',
-    #             dist_dpath,
-    #             '-r',
-    #             reqs_fpath,
-    #         )
-
-    #     log.info('Building source code zip file...')
-    #     if dist_app_dpath.exists():
-    #         shutil.rmtree(dist_app_dpath)
-
-    #     shutil.copytree(app_dpath, dist_app_dpath)
-
-    #     if zip_fpath.exists():
-    #         zip_fpath.unlink()
-
-    #     shutil.make_archive(zip_fpath.with_suffix(''), 'zip', dist_dpath)
-
-    #     log.info('Updating lambda configuration...')
-    #     # TODO: handle error
-    #     self.lc.update_function_configuration(
-    #         FunctionName=lambda_name,
-    #         Handler=self.handler,
-    #         # TODO: set secrets
-    #         # Environment={
-    #         #     'Variables': {
-    #         #         'KEY1': 'VALUE1',
-    #         #         'KEY2': 'VALUE2',
-    #         #     },
-    #         # },
-    #     )
-
-    #     log.info('Updating lambda code...')
-    #     # TODO: handle error
-    #     self.lc.update_function_code(
-    #         FunctionName=lambda_name,
-    #         ZipFile=zip_fpath.read_bytes(),
-    #     )
-
-    #     print(f'Source code deployed as: {lambda_name}')
+                print('     ', k, v, file=file)
