@@ -42,12 +42,16 @@ class ActionHandler:
                 return 'Called task'
 
             return cls.on_action('do-action', event, context)
-        except Exception:
-            log.exception(
-                'ActionHandler.on_event() caught an unhandled exception',
-                extra=cls.diagnostics(event, context),
-            )
-            return 'Internal Server Error'
+        except Exception as e:
+            return cls.handle_exception(e, event, context)
+
+    @classmethod
+    def handle_exception(cls, e: Exception, event, context):
+        log.exception(
+            'ActionHandler.on_event() caught an unhandled exception',
+            extra=cls.diagnostics(event, context),
+        )
+        return 'Internal Server Error'
 
     @staticmethod
     def ping(event, context):
@@ -55,16 +59,19 @@ class ActionHandler:
 
     @staticmethod
     def diagnostics(event, context, error=None):
-        context_data = {
-            'aws_request_id': context.aws_request_id,
-            'log_group_name': context.log_group_name,
-            'log_stream_name': context.log_stream_name,
-            'function_name': context.function_name,
-            'memory_limit_in_mb': context.memory_limit_in_mb,
-            'function_version': context.function_version,
-            'invoked_function_arn': context.invoked_function_arn,
-            'remaining_time': context.get_remaining_time_in_millis(),
-        }
+        try:
+            context_data = {
+                'aws_request_id': context.aws_request_id,
+                'log_group_name': context.log_group_name,
+                'log_stream_name': context.log_stream_name,
+                'function_name': context.function_name,
+                'memory_limit_in_mb': context.memory_limit_in_mb,
+                'function_version': context.function_version,
+                'invoked_function_arn': context.invoked_function_arn,
+                'remaining_time': context.get_remaining_time_in_millis(),
+            }
+        except AttributeError as e:
+            context_data = {'diagnostics attribute error': str(e)}
 
         return {
             'event': event,
