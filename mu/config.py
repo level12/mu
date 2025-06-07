@@ -62,10 +62,10 @@ class Config:
     vpc_subnet_name_tag_key: str = 'Name'
     vpc_security_group_names: list[str] = field(default_factory=list)
 
-    def apply_sess(self, sess: boto3.Session):
+    def apply_sess(self, sess: boto3.Session, testing=False):
         self.aws_region = sess.region_name
         try:
-            self.aws_acct_id = sts.account_id(sess)
+            self.aws_acct_id = '13579' if testing else sts.account_id(sess)
         except Exception as e:
             exc_str = str(type(e))
             if 'NoCredentialsError' in exc_str or 'ExpiredToken' in exc_str:

@@ -29,3 +29,8 @@ def aws_region(b3_sess):
 @pytest.fixture
 def logs(caplog):
     return testing.Logs(caplog)
+
+
+@pytest.fixture(scope='session')
+def config(b3_sess):
+    return testing.config(b3_sess)
