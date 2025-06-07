@@ -5,7 +5,7 @@ import click
 
 from ..cli import cli
 from ..config import Config, cli_load
-from ..libs import auth, ec2, ecr, ecs
+from ..libs import api_gateway, auth, ec2, ecr, ecs
 
 
 log = logging.getLogger()
@@ -13,7 +13,7 @@ log = logging.getLogger()
 
 @cli.group()
 def aws():
-    pass
+    """(group)"""
 
 
 @aws.command()
@@ -27,7 +27,7 @@ def subnets(target_env, name_prefix, name_key, verbose):
     b3_sess = auth.b3_sess(config.aws_region)
 
     for name, subnet in ec2.describe_subnets(b3_sess, name_prefix, name_key).items():
-        print(f"{subnet['AvailabilityZone']} - {subnet['SubnetId']} - {name}")
+        print(f'{subnet["AvailabilityZone"]} - {subnet["SubnetId"]} - {name}')
         if verbose:
             pprint(subnet)
 
@@ -42,7 +42,7 @@ def security_groups(target_env, only_names, verbose):
     b3_sess = auth.b3_sess(config.aws_region)
 
     for name, group in ec2.describe_security_groups(b3_sess, only_names).items():
-        print(f"{group['GroupId']} - {name} - {group['Description']}")
+        print(f'{group["GroupId"]} - {name} - {group["Description"]}')
         if verbose:
             pprint(group)
 
@@ -141,3 +141,18 @@ def ecr_tags(
     print('Tags:')
     for tag in repos.ecr_tags(repo_name, prefix=prefix, limit=limit):
         print(f'  {tag}')
+
+
+@aws.command()
+@click.option('--verbose', is_flag=True)
+def api_gateways(verbose: bool):
+    """List api gateways in active account"""
+    config: Config = cli_load(None)
+    b3_sess = auth.b3_sess(config.aws_region)
+
+    apis = api_gateway.APIs(b3_sess)
+    for ag in apis.list():
+        if verbose:
+            print(ag.name, ag, sep='\n')
+        else:
+            print(ag.name, ag.created_date, ag.api_id)
