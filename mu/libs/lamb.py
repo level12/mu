@@ -1,5 +1,6 @@
 from base64 import b64decode
-from dataclasses import dataclass
+import concurrent.futures
+from dataclasses import dataclass, field
 import io
 import itertools
 import json
@@ -90,9 +91,10 @@ class Lambda:
         self.repos = ecr.Repos(b3_sess)
         self.apis = api_gateway.APIs(b3_sess)
         self.sqs = sqs.SQS(b3_sess)
+        self.role_name: str = self.config.resource_ident
 
     def provision_role(self):
-        role_name: str = self.config.resource_ident
+        role_name = self.role_name
 
         # Ensure the role exists and give lambda permission to use it.
         self.roles.ensure_role(
@@ -626,3 +628,84 @@ class Lambda:
                 if k == 'message' and rec:
                     continue
                 print('     ', k, v, file=file)
+
+
+@dataclass
+class LambdaStatus:
+    resources: dict[str, bool] = field(default_factory=dict)
+    event_rules: dict[str, bool] = field(default_factory=dict)
+
+    @classmethod
+    def load_all(cls, config: Config):
+        """Create a LambdaStatus instance from a Config object"""
+        lamb = Lambda(config)
+        print(lamb.get_role())
+
+    def check_all(self) -> dict[str, dict[str, bool]]:
+        """Check all resources and return status dictionary"""
+        self.check_resources()
+        self.check_event_rules()
+
+        return {
+            'resources': self.resources,
+            'event_rules': self.event_rules,
+        }
+
+    def check_resources(self) -> dict[str, bool]:
+        """Check basic Lambda resources in parallel"""
+
+        def check_role():
+            return 'IAM Role', self.lamb.roles.get(self.config.resource_ident) is not None
+
+        def check_repo():
+            return 'ECR Repository', self.lamb.repos.get(self.config.resource_ident) is not None
+
+        def check_lambda():
+            try:
+                self.lamb.lc.get_function(FunctionName=self.config.lambda_ident)
+                return 'Lambda Function', True
+            except self.lamb.not_found_exc:
+                return 'Lambda Function', False
+
+        # Run checks in parallel
+        checks = [check_role, check_repo, check_lambda]
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            future_to_check = {executor.submit(check): check.__name__ for check in checks}
+            for future in concurrent.futures.as_completed(future_to_check):
+                name, exists = future.result()
+                self.resources[name] = exists
+
+        # Check function URL if lambda exists
+        if self.resources.get('Lambda Function', False):
+            try:
+                self.lamb.lc.get_function_url_config(FunctionName=self.config.lambda_ident)
+                self.resources['Function URL'] = True
+            except self.lamb.not_found_exc:
+                self.resources['Function URL'] = False
+
+        return self.resources
+
+    def check_event_rules(self) -> dict[str, bool]:
+        """Check event rules in parallel"""
+        if not self.config.event_rules:
+            return self.event_rules
+
+        def check_rule(rule_ident):
+            rule_name = f'{self.config.lambda_ident}-{rule_ident}'
+            try:
+                self.lamb.event_client.describe_rule(Name=rule_name)
+                return rule_ident, True
+            except self.lamb.not_found_exc:
+                return rule_ident, False
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            future_to_rule = {
+                executor.submit(check_rule, rule_ident): rule_ident
+                for rule_ident in self.config.event_rules
+            }
+            for future in concurrent.futures.as_completed(future_to_rule):
+                rule_ident, exists = future.result()
+                self.event_rules[rule_ident] = exists
+
+        return self.event_rules
