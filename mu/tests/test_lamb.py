@@ -37,6 +37,7 @@ class TestLambda:
     logs_policy = f'{res_ident}-logs'
     ecr_repo_policy = f'{res_ident}-ecr-repo'
     sqs_policy = f'{res_ident}-sqs-queues'
+    lambda_policy = f'{res_ident}-lambda'
     repo_name = res_ident
 
     @pytest.fixture(autouse=True)
@@ -73,7 +74,7 @@ class TestLambda:
         }
 
         pols = policies.list(prefix=self.res_ident)
-        assert len(pols) == 3
+        assert len(pols) == 4
 
         policy = policies.get(self.ecr_repo_policy)
         assert policy.document == {
@@ -123,6 +124,20 @@ class TestLambda:
             ],
         }
 
+        policy = policies.get(self.lambda_policy)
+        assert policy.document == {
+            'Version': '2012-10-17',
+            'Statement': [
+                {
+                    'Action': [
+                        'lambda:InvokeFunction',
+                    ],
+                    'Resource': f'arn:aws:lambda:{aws_region}:{aws_acct_id}:function:greek-mu-func-qa',  # noqa: E501
+                    'Effect': 'Allow',
+                },
+            ],
+        }
+
         # Should be able to run it with existing resources and not get any errors.
         anon.provision_role()
 
@@ -134,11 +149,13 @@ class TestLambda:
             f'Policy created: {self.ecr_repo_policy}',
             'Policy created: greek-mu-lambda-func-qa-sqs-queues',
             'Attaching managed policy: AWSLambdaVPCAccessExecutionRole',
+            'Policy created: greek-mu-lambda-func-qa-lambda',
             f'Role existed, assume role policy updated: {self.res_ident}',
             f'Policy existed, document current: {self.logs_policy}',
             f'Policy existed, document current: {self.ecr_repo_policy}',
             'Policy existed, document current: greek-mu-lambda-func-qa-sqs-queues',
             'Attaching managed policy: AWSLambdaVPCAccessExecutionRole',
+            'Policy existed, document current: greek-mu-lambda-func-qa-lambda',
         ]
 
     def test_provision_repo(self, b3_sess, repos: ecr.Repos, caplog):

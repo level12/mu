@@ -33,7 +33,7 @@ class InvokeResp:
     def __str__(self):
         logs = io.StringIO()
         for event in self.log_events:
-            # TODO: the formatting isn't quire right here.  The structure of the log events
+            # TODO: the formatting isn't quite right here.  The structure of the log events
             # isn't the same here as it is for the log streams.
             Lambda.log_event_print({'message': event}, file=logs)
 
