@@ -6,8 +6,8 @@ import colorlog
 
 import mu.config
 from mu.config import Config, cli_load
-from mu.libs import api_gateway, auth, sqs, sts, utils
-from mu.libs.lamb import Lambda
+from mu.libs import auth, sqs, sts, utils
+from mu.libs.lamb import Lambda, LambdaStatus
 
 
 log = logging.getLogger()
@@ -164,21 +164,6 @@ def logs(
 
 @cli.command()
 @click.pass_context
-@click.option('--verbose', is_flag=True)
-def apis(ctx: click.Context, verbose: bool):
-    """List api gateways in active account"""
-    config: Config = ctx.obj
-
-    apis = api_gateway.APIs(auth.b3_sess(config.aws_region))
-    for ag in apis.list():
-        if verbose:
-            print(ag.name, ag, sep='\n')
-        else:
-            print(ag.name, ag.created_date, ag.api_id)
-
-
-@cli.command()
-@click.pass_context
 @click.argument('name_prefix', required=False, default='')
 @click.option('--verbose', is_flag=True)
 @click.option('--delete', is_flag=True)
@@ -194,3 +179,37 @@ def sqs_list(ctx: click.Context, verbose: bool, delete: bool, name_prefix=str):
             print(q.name, q.attrs, sep='\n')
         else:
             print(q.name)
+
+
+@cli.command()
+@click.argument('action', type=click.Choice(('get', 'provision', 'delete')))
+@click.argument('target_env', required=False)
+def aws_gateway(target_env: str, action: str):
+    """Ensure aws gateway exists"""
+    from ..libs import gateway
+
+    config = cli_load(target_env or mu.config.default_env())
+    gw = gateway.Gateway(config, 'poster.level12.app')
+    if action == 'get':
+        pprint(gw.cert)
+        pprint(gw.cert_describe(gw.cert.arn))
+        return
+
+    if action == 'delete':
+        gw.delete()
+        return
+
+    if action == 'provision':
+        gw.provision()
+        return
+
+    raise RuntimeError(f'Unhandled action: {action}')
+
+
+@cli.command()
+@click.argument('target_env', required=False)
+def status(target_env: str):
+    """Check status of all infrastructure components for the app"""
+    config = cli_load(target_env or mu.config.default_env())
+
+    LambdaStatus.load_all(config)

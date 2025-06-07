@@ -73,8 +73,8 @@ def sub_run(*args, **kwargs):
         raise
 
 
-def take(from_: dict, *keys):
-    return {k: from_[k] for k in keys}
+def take(from_: dict, *keys, strict=True):
+    return {k: from_[k] for k in keys if strict or k in from_}
 
 
 def host_user():
