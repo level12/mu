@@ -1,22 +1,15 @@
 import base64
-import enum
-import functools
-import io
 import json
 import logging
-import shutil
 import time
-import zipfile
 
 import arrow
 from blazeutils.strings import case_us2mc
 import boto3
 import docker
 from methodtools import lru_cache
-import requests
 
-from ..config import Config
-from . import iam, sts, utils
+from . import utils
 
 
 log = logging.getLogger(__name__)
