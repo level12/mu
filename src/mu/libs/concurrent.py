@@ -28,7 +28,7 @@ def thread_futures(
     *,
     max_workers: int = 5,
     initializer=None,
-) -> typing.Generator[FutureResult, None, None]:
+):
     """
     Use concurrent.futures with the process pool executor and enhancements to result processing
     and error handling.

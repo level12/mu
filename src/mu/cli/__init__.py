@@ -1,3 +1,3 @@
 # Core needs to be imported first since other modules import cli from it
-from .core import cli
-from . import aws
+from . import aws as aws
+from .core import cli as cli

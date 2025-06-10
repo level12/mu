@@ -279,7 +279,7 @@ class Gateway:
         if cert.Status != 'ISSUED':
             log.info(f'Gateway provision: certificate has unknown status ({cert.Status}).')
             log.info(
-                '  - Use `mu domain-name ...` to inspect, delete cert if applicable, and try again.',
+                '  - Use `mu domain-name ...` to inspect, maybe delete cert, and try again.',
             )
             return
 

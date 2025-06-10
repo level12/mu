@@ -1,7 +1,6 @@
-from collections.abc import Callable, Generator
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Self
 from unittest import mock
 
 from blazeutils.strings import randchars
@@ -169,7 +168,7 @@ class GatewayStubs:
         return self.api_mappings.delete('delete_api_mapping', kwargs)
 
     @contextmanager
-    def mock(self, *recs_cruds: tuple[AWSRecsCRUD]) -> Generator[Self, None, None]:
+    def mock(self, *recs_cruds: tuple[AWSRecsCRUD]):
         originals = [rc.b3c for rc in recs_cruds]
         for rc in recs_cruds:
             rc.b3c = self

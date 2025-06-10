@@ -113,7 +113,7 @@ class Repo:
         if tags:
             return tags[0]
 
-    def tag_local(self, image_name, suffix: str = None):
+    def tag_local(self, image_name, suffix: str | None = None):
         image = LocalImage(image_name)
         tag = suffix or image.created_utc()
         tag = f'{image_name}-{tag}'
@@ -137,7 +137,7 @@ class Repo:
             imageManifest=manifest,
         )
 
-    def push(self, image_name: str, *, tag_suffix: str = None):
+    def push(self, image_name: str, *, tag_suffix: str | None = None):
         tag = self.tag_local(image_name, tag_suffix)
         repo_tag = self.latest_tag(image_name)
 

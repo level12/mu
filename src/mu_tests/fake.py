@@ -114,7 +114,7 @@ def domain_name(name='app.example.com'):
         'DomainNameConfigurations': [
             {
                 'ApiGatewayDomainName': 'd-bbddxy8sl8.execute-api.us-east-2.amazonaws.com',
-                'CertificateArn': 'arn:aws:acm:us-east-2:429829037495:certificate/26399e1b-5d13-46b6-b4e8-399261a9fff0',
+                'CertificateArn': 'arn:aws:acm:us-east-2:429829037495:certificate/26399e1b-5d13-46b6-b4e8-399261a9fff0',  # noqa: E501
                 'DomainNameStatus': 'AVAILABLE',
                 'EndpointType': 'REGIONAL',
                 'HostedZoneId': 'ZOJJZC49E0EPZ',

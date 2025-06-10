@@ -61,7 +61,7 @@ class SQS:
         queue = Queue(self.b3_sess, name)
         return queue if queue.exists() else None
 
-    def list(self, name_prefix: str = None) -> dict[str, Queue]:
+    def list(self, name_prefix: str | None = None) -> dict[str, Queue]:
         resp = self.sqs.list_queues(QueueNamePrefix=name_prefix)
         queues = [Queue.from_url(self.b3_sess, url) for url in resp.get('QueueUrls', ())]
         return {q.name: q for q in queues}

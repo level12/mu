@@ -74,7 +74,9 @@ ignore = [
 
 [lint.per-file-ignores]
 'tasks/*.py' = ['EXE003']
-'mu/cli/__init__.py' = ['F401', 'I001']
+'src/mu_tests/data/*.py' = [
+    'E501', # Line too long
+]
 
 [lint.flake8-builtins]
 ignorelist = ['id', 'help', 'compile']

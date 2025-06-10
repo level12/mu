@@ -37,7 +37,7 @@ def machine_ident():
 
 
 class EncryptedTempFile:
-    def __init__(self, label: str, enc_key: str = None):
+    def __init__(self, label: str, enc_key: str | None = None):
         enc_key = enc_key or machine_ident()
         id_hash: bytes = hashlib.sha256(enc_key.encode()).digest()
         self.fernet_key: str = base64.urlsafe_b64encode(id_hash)
