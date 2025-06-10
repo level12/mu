@@ -1,14 +1,16 @@
 from dataclasses import dataclass
 import logging
+from os import environ
 from typing import Self
 
+import boto3
 from botocore.exceptions import ClientError
 
 from mu.libs import utils
 
 from ..config import Config
-from . import auth
-from .aws_base import AWSRec, AWSRecsCRUD
+from . import auth, lamb, sts
+from .aws_recs import AWSRec, AWSRecsCRUD
 
 
 log = logging.getLogger(__name__)
@@ -68,19 +70,23 @@ class ACMCerts(AWSRecsCRUD):
         )
 
     def client_delete(self, rec: ACMCert):
-        self.b3c.delete_certificate(CertificateArn=rec.arn)
+        try:
+            self.b3c.delete_certificate(CertificateArn=rec.arn)
+        except ClientError as e:
+            if e.response['Error']['Code'] != 'ResourceNotFoundException':
+                raise
+
+    def client_describe(self, rec: ACMCert) -> dict:
+        return self.b3c.describe_certificate(CertificateArn=rec.arn)['Certificate']
 
     def hydrate(self, rec: ACMCert):
         log.info(f'{self.log_prefix} hydrate: fetching full cert description')
 
         def full_cert_desc():
-            try:
-                desc = self.b3c.describe_certificate(CertificateArn=rec.arn)['Certificate']
-                options = desc.get('DomainValidationOptions')
-                if options and options[0].get('ResourceRecord'):
-                    return desc
-            except Exception as e:
-                print(e)
+            desc = self.client_describe(rec)
+            options = desc.get('DomainValidationOptions')
+            if options and options[0].get('ResourceRecord'):
+                return desc
 
         cert_data = utils.retry(
             full_cert_desc,
@@ -95,14 +101,16 @@ class ACMCerts(AWSRecsCRUD):
         self._list_recs[rec.ident] = cert = ACMCert.from_aws(cert_data)
         return cert
 
-    def log_dns_validation(self, domain_name: str):
+    def dns_hydrate(self, domain_name):
         cert: ACMCert = self.get(domain_name)
-        if cert.Status == 'PENDING_VALIDATION':
-            if cert.dns_validation is None:
-                # Cert data was loaded from the list operation and we don't have DNS info available
-                # yet.
-                cert = self.hydrate(cert)
+        if cert.Status == 'PENDING_VALIDATION' and cert.dns_validation is None:
+            return self.hydrate(cert)
+        return cert
 
+    def log_dns_validation(self, domain_name: str):
+        cert = self.dns_hydrate(domain_name)
+
+        if cert.Status == 'PENDING_VALIDATION':
             log.info('Cert ensure: DNS validation pending:')
             log.info(f'  - DNS Type: {cert.dns_validation.Type}')
             log.info(f'  - DNS Name: {cert.dns_validation.Name}')
@@ -141,35 +149,7 @@ class GatewayAPIs(AWSRecsCRUD):
 
 
 @dataclass
-class LambdaFunction(AWSRec):
-    FunctionName: str
-    FunctionArn: str
-
-    @property
-    def ident(self):
-        return self.FunctionName
-
-    @property
-    def arn(self):
-        return self.FunctionArn
-
-
-class Lambdas(AWSRecsCRUD):
-    client_name: str = 'lambda'
-    rec_cls: type[LambdaFunction] = LambdaFunction
-
-    def client_list(self):
-        return self.b3c.list_functions()['Functions']
-
-    def client_create(self, name: str, **kwargs):
-        self.b3c.create_function(
-            FunctionName=name,
-            **kwargs,
-        )
-
-
-@dataclass
-class GatewayDomain(AWSRec):
+class DomainName(AWSRec):
     DomainName: str
     GatewayDomainName: str
     Status: str
@@ -192,9 +172,9 @@ class GatewayDomain(AWSRec):
         return self.DomainName
 
 
-class GatewayDomains(AWSRecsCRUD):
+class DomainNames(AWSRecsCRUD):
     client_name: str = 'apigatewayv2'
-    rec_cls: type[GatewayDomain] = GatewayDomain
+    rec_cls: type[DomainName] = DomainName
 
     def client_list(self):
         return self.b3c.get_domain_names()['Items']
@@ -211,10 +191,14 @@ class GatewayDomains(AWSRecsCRUD):
             ],
         )
 
+    def client_delete(self, domain_name: DomainName):
+        self.b3c.delete_domain_name(DomainName=domain_name.DomainName)
+
 
 @dataclass
 class APIMapping(AWSRec):
     ApiId: str
+    ApiMappingId: str
     Stage: str
 
     @property
@@ -228,78 +212,93 @@ class APIMappings(AWSRecsCRUD):
     client_name: str = 'apigatewayv2'
     rec_cls: type[APIMapping] = APIMapping
 
-    def __init__(self, *args, domain_name, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.domain_name = domain_name
-        self.stage = '$default'
+    def client_list(self, domain_name):
+        return self.b3c.get_api_mappings(DomainName=domain_name)['Items']
 
-    def client_list(self):
-        return self.b3c.get_api_mappings(DomainName=self.domain_name)['Items']
-
-    def client_create(self, api_id: str):
+    def client_create(self, api_id: str, *, domain_name, stage='$default'):
         self.b3c.create_api_mapping(
-            DomainName=self.domain_name,
+            DomainName=domain_name,
             ApiId=api_id,
-            Stage=self.stage,
+            Stage=stage,
         )
+
+    def client_delete(self, rec: APIMapping, domain_name: str):
+        self.b3c.delete_api_mapping(ApiMappingId=rec.ApiMappingId, DomainName=domain_name)
+
+    def ensure(self, api_id: str, domain_name: str):
+        # Need domain name for listing and create
+        return super().ensure(api_id, domain_name, domain_name=domain_name)
 
 
 class Gateway:
     def __init__(
         self,
         config: Config,
-        domain_name: str,
         *,
+        b3_sess: boto3.Session = None,
         testing=False,
     ):
         self.config: Config = config
-        self.b3_sess = b3_sess = auth.b3_sess(config.aws_region, testing)
-        config.apply_sess(b3_sess, testing)
+        self.b3_sess = b3_sess or auth.b3_sess(config, testing=testing)
 
-        self.domain_name = domain_name
+        self.domain_name = self.config.domain_name
         self.lambda_arn = config.function_arn
         self.api_name = config.resource_ident
 
         self.acm_certs = ACMCerts(self.b3_sess)
         self.gw_apis = GatewayAPIs(self.b3_sess)
-        self.gw_domains = GatewayDomains(self.b3_sess)
-        self.api_mappings = APIMappings(self.b3_sess, domain_name=domain_name)
+        self.gw_domains = DomainNames(self.b3_sess)
+        self.api_mappings = APIMappings(self.b3_sess)
+        self.func_perms = lamb.FunctionPermissions(self.b3_sess)
 
-    def ensure_lambda_permission(self, api_id):
-        source_arn = (
-            f'arn:aws:execute-api:{self.config.aws_region}:{self.config.aws_acct_id}:{api_id}/*/*'
-        )
-        try:
-            self.b3c_lambda.add_permission(
-                FunctionName=self.config.lambda_ident,
-                StatementId=f'{self.config.resource_ident}-{api_id}-invoke',
-                Action='lambda:InvokeFunction',
-                Principal='apigateway.amazonaws.com',
-                SourceArn=source_arn,
-            )
-        except ClientError as e:
-            if e.response['Error']['Code'] != 'ResourceConflictException':
-                raise
+    def cert_describe(self) -> dict:
+        cert = self.acm_certs.get(self.domain_name)
+        return self.acm_certs.client_describe(cert)
 
-    def delete(self):
-        GatewayAPIs(self.b3_sess).delete(self.config.resource_ident)
-        self.cert_delete()
+    def delete(self, delete_cert=True):
+        gw_api: GatewayAPI = self.gw_apis.get(self.config.resource_ident)
+
+        if gw_api:
+            self.api_mappings.delete(gw_api.ApiId, self.domain_name)
+
+        self.gw_domains.delete(self.domain_name)
+        self.gw_apis.delete(self.config.resource_ident)
+        self.func_perms.delete(self.config.api_invoke_stmt_id, self.config.function_arn)
+
+        if delete_cert:
+            self.acm_certs.delete(self.domain_name)
 
     def provision(self):
         cert: ACMCert = self.acm_certs.ensure(self.domain_name)
+        self.acm_certs.log_dns_validation(self.domain_name)
+
+        if cert.Status == 'PENDING_VALIDATION':
+            log.info('Gateway provision: can not continue until certificate is validated.')
+            return
+
+        if cert.Status != 'ISSUED':
+            log.info(f'Gateway provision: certificate has unknown status ({cert.Status}).')
+            log.info(
+                '  - Use `mu domain-name ...` to inspect, delete cert if applicable, and try again.',
+            )
+            return
 
         gw_api: GatewayAPI = self.gw_apis.ensure(
             self.config.resource_ident,
             lambda_arn=self.config.function_arn,
         )
         log.info(f'  - Api Endpoint: {gw_api.ApiEndpoint}')
-        self.acm_certs.log_dns_validation(self.domain_name)
-        return
-        self.ensure_lambda_permission(gw_api.ApiId)
 
-        # TODO: if the certificate is not issued (i.e. validated), you can't create the domain
-        # yet
-        gw_domain: GatewayDomain = self.gw_domains.ensure(
+        # TODO: we could be smarter about only replacing if there is a difference
+        self.func_perms.delete(self.config.api_invoke_stmt_id, self.config.function_arn)
+        self.func_perms.ensure(
+            self.config.api_invoke_stmt_id,
+            config=self.config,
+            perm_type='api-invoke',
+            api_key=gw_api.ApiId,
+        )
+
+        gw_domain: DomainName = self.gw_domains.ensure(
             self.domain_name,
             cert_arn=cert.arn,
         )
@@ -307,9 +306,17 @@ class Gateway:
         log.info(f'  - Alias: {self.domain_name}')
         log.info(f'  - Status: {gw_domain.Status}')
 
-        self.api_mappings.ensure(gw_api.ApiId)
+        self.api_mappings.ensure(gw_api.ApiId, self.domain_name)
 
 
-# Example usage:
-# gw = Gateway(domain_name='api.example.com', lambda_function_name='my-func', api_name='my-api')
-# gw.deploy()
+def acct_cleanup(b3_sess):
+    aid = sts.account_id(b3_sess)
+
+    # Ensure we aren't accidently working on an unintended account.
+    assert aid == environ.get('MU_TEST_ACCT_ID')
+
+    for name in DomainNames(b3_sess).list():
+        print(name)
+
+    # for api_map in APIMappings(b3_sess).list():
+    #     print(api_map)

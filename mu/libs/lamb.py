@@ -1,6 +1,5 @@
 from base64 import b64decode
-import concurrent.futures
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import io
 import itertools
 import json
@@ -11,10 +10,13 @@ import textwrap
 
 import arrow
 import boto3
+from botocore.exceptions import ClientError
 import docker
 import requests
 
 from mu.config import Config
+from mu.libs import gateway
+from mu.libs.aws_recs import AWSRec, AWSRecsCRUD
 
 from . import api_gateway, auth, ec2, ecr, iam, sqs, utils
 
@@ -92,6 +94,7 @@ class Lambda:
         self.apis = api_gateway.APIs(b3_sess)
         self.sqs = sqs.SQS(b3_sess)
         self.role_name: str = self.config.resource_ident
+        self.gateway = gateway.Gateway(config, b3_sess=b3_sess)
 
     def provision_role(self):
         role_name = self.role_name
@@ -142,6 +145,9 @@ class Lambda:
         self.provision_role()
         self.provision_repo()
         self.provision_aws_config()
+
+        if self.config.domain_name:
+            self.gateway.provision()
 
         log.info(f'Provision finished for: {self.config.lambda_ident}')
 
@@ -247,6 +253,9 @@ class Lambda:
     def delete(self, env_name, *, force_repo):
         lambda_name = self.config.lambda_ident
         resource_ident = self.config.resource_ident
+
+        if self.config.domain_name:
+            self.gateway.delete()
 
         try:
             self.lc.delete_function(
@@ -631,81 +640,116 @@ class Lambda:
 
 
 @dataclass
-class LambdaStatus:
-    resources: dict[str, bool] = field(default_factory=dict)
-    event_rules: dict[str, bool] = field(default_factory=dict)
+class Function(AWSRec):
+    FunctionName: str
+    FunctionArn: str
 
-    @classmethod
-    def load_all(cls, config: Config):
-        """Create a LambdaStatus instance from a Config object"""
-        lamb = Lambda(config)
-        print(lamb.get_role())
+    @property
+    def ident(self):
+        return self.FunctionName
 
-    def check_all(self) -> dict[str, dict[str, bool]]:
-        """Check all resources and return status dictionary"""
-        self.check_resources()
-        self.check_event_rules()
+    @property
+    def arn(self):
+        return self.FunctionArn
 
+
+class Functions(AWSRecsCRUD):
+    client_name: str = 'lambda'
+    rec_cls: type[Function] = Function
+
+    def client_list(self):
+        return self.b3c.list_functions()['Functions']
+
+    def client_create(self, name: str, **kwargs):
+        self.b3c.create_function(
+            FunctionName=name,
+            **kwargs,
+        )
+
+    def client_delete(self, func: Function):
+        self.b3c.delete_function(FunctionName=func.arn)
+
+
+@dataclass
+class FunctionURLConfig(AWSRec):
+    FunctionUrl: str
+    FunctionArn: str
+
+    @property
+    def ident(self):
+        return self.FunctionArn
+
+
+class FunctionURLConfigs(AWSRecsCRUD):
+    client_name: str = 'lambda'
+    rec_cls: type[FunctionURLConfig] = FunctionURLConfig
+
+    def get(self, function_arn: str):
+        """Function URL Configs have a "list" mechanism but there can only be one of them per
+        lambda function and they have no identifier of their own other than the URL.  But you get
+        and delete them by the function arn."""
+        return super().get(function_arn, function_arn)
+
+    def client_list(self, function_arn):
+        return self.b3c.list_function_url_configs(FunctionName=function_arn)['FunctionUrlConfigs']
+
+
+@dataclass
+class PolicyStatement(AWSRec):
+    Sid: str
+    Effect: str
+    Principal: dict
+    Action: str
+    Resource: str
+    Condition: dict
+
+    @property
+    def ident(self):
+        return self.Sid
+
+
+class FunctionPermissions(AWSRecsCRUD):
+    client_name: str = 'lambda'
+    rec_cls: type[PolicyStatement] = PolicyStatement
+
+    def ensure(self, statement_id: str, *, config: Config, **kwargs):
+        return super().ensure(statement_id, config.function_arn, config=config, **kwargs)
+
+    def client_list(self, function_arn: str):
+        try:
+            return json.loads(self.b3c.get_policy(FunctionName=function_arn)['Policy'])['Statement']
+        except ClientError as e:
+            if e.response['Error']['Code'] != 'ResourceNotFoundException':
+                raise
+
+        return []
+
+    def client_create(
+        self,
+        statement_id: str,
+        *,
+        config: Config,
+        perm_type: str,
+        api_key: str | None = None,
+    ):
+        assert perm_type in ('api-invoke',)
+        if perm_type == 'api-invoke':
+            assert api_key
+            self.b3c.add_permission(
+                StatementId=statement_id,
+                FunctionName=config.function_arn,
+                **self._perm_api_invoke(config, api_key),
+            )
+        else:
+            raise RuntimeError('Unhandled perm-type')
+
+    def client_delete(self, stmt: PolicyStatement, function_arn: str):
+        self.b3c.remove_permission(FunctionName=function_arn, StatementId=stmt.Sid)
+
+    def _perm_api_invoke(self, config: Config, api_key: str):
+        source_arn = f'arn:aws:execute-api:{config.aws_region}:{config.aws_acct_id}:{api_key}/*/*'
         return {
-            'resources': self.resources,
-            'event_rules': self.event_rules,
+            'Action': 'lambda:InvokeFunction',
+            'Principal': 'apigateway.amazonaws.com',
+            'SourceArn': source_arn,
         }
-
-    def check_resources(self) -> dict[str, bool]:
-        """Check basic Lambda resources in parallel"""
-
-        def check_role():
-            return 'IAM Role', self.lamb.roles.get(self.config.resource_ident) is not None
-
-        def check_repo():
-            return 'ECR Repository', self.lamb.repos.get(self.config.resource_ident) is not None
-
-        def check_lambda():
-            try:
-                self.lamb.lc.get_function(FunctionName=self.config.lambda_ident)
-                return 'Lambda Function', True
-            except self.lamb.not_found_exc:
-                return 'Lambda Function', False
-
-        # Run checks in parallel
-        checks = [check_role, check_repo, check_lambda]
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-            future_to_check = {executor.submit(check): check.__name__ for check in checks}
-            for future in concurrent.futures.as_completed(future_to_check):
-                name, exists = future.result()
-                self.resources[name] = exists
-
-        # Check function URL if lambda exists
-        if self.resources.get('Lambda Function', False):
-            try:
-                self.lamb.lc.get_function_url_config(FunctionName=self.config.lambda_ident)
-                self.resources['Function URL'] = True
-            except self.lamb.not_found_exc:
-                self.resources['Function URL'] = False
-
-        return self.resources
-
-    def check_event_rules(self) -> dict[str, bool]:
-        """Check event rules in parallel"""
-        if not self.config.event_rules:
-            return self.event_rules
-
-        def check_rule(rule_ident):
-            rule_name = f'{self.config.lambda_ident}-{rule_ident}'
-            try:
-                self.lamb.event_client.describe_rule(Name=rule_name)
-                return rule_ident, True
-            except self.lamb.not_found_exc:
-                return rule_ident, False
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-            future_to_rule = {
-                executor.submit(check_rule, rule_ident): rule_ident
-                for rule_ident in self.config.event_rules
-            }
-            for future in concurrent.futures.as_completed(future_to_rule):
-                rule_ident, exists = future.result()
-                self.event_rules[rule_ident] = exists
-
-        return self.event_rules

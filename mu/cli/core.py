@@ -1,44 +1,21 @@
-import logging
 from pprint import pprint
 
 import click
-import colorlog
 
 import mu.config
 from mu.config import Config, cli_load
-from mu.libs import auth, sqs, sts, utils
-from mu.libs.lamb import Lambda, LambdaStatus
+from mu.libs import auth, logs, sqs, sts, utils
+from mu.libs.lamb import Lambda
+from mu.libs.status import Status
 
 
-log = logging.getLogger()
+log = logs.logger()
 
 
 @click.group()
-@click.option('--quiet', is_flag=True)
-@click.option('--verbose', is_flag=True)
-@click.pass_context
-def cli(ctx, quiet, verbose):
-    logging.addLevelName(logging.DEBUG, 'debug')
-    logging.addLevelName(logging.INFO, 'info')
-    logging.addLevelName(logging.WARNING, 'warning')
-    logging.addLevelName(logging.ERROR, 'error')
-    logging.addLevelName(logging.CRITICAL, 'critical')
-
-    handler = colorlog.StreamHandler()
-    formatter = colorlog.ColoredFormatter(
-        '%(log_color)s%(levelname)8s%(reset)s  %(message)s',
-        log_colors={
-            'debug': 'white',
-            'info': 'cyan',
-            'warning': 'yellow',
-            'error': 'red',
-            'critical': 'red',
-        },
-    )
-    handler.setFormatter(formatter)
-    level = logging.WARNING if quiet else (logging.DEBUG if verbose else logging.INFO)
-    logging.getLogger('mu').setLevel(level)
-    logging.basicConfig(handlers=(handler,))
+@logs.click_options
+def cli(log_level: str):
+    logs.init_logging(log_level)
 
 
 @cli.command()
@@ -139,13 +116,13 @@ def invoke(ctx, target_env: str, action: str, host: str, action_args: list, loca
     print(result)
 
 
-@cli.command()
+@cli.command('logs')
 @click.argument('target_env', required=False)
 @click.option('--first', default=0)
 @click.option('--last', default=0)
 @click.option('--streams', is_flag=True)
 @click.pass_context
-def logs(
+def _logs(
     ctx: click.Context,
     target_env: str,
     first: int,
@@ -182,17 +159,18 @@ def sqs_list(ctx: click.Context, verbose: bool, delete: bool, name_prefix=str):
 
 
 @cli.command()
-@click.argument('action', type=click.Choice(('get', 'provision', 'delete')))
+@click.argument('action', type=click.Choice(('show', 'provision', 'delete')))
 @click.argument('target_env', required=False)
-def aws_gateway(target_env: str, action: str):
-    """Ensure aws gateway exists"""
+def domain_name(target_env: str, action: str):
+    """Manage AWS config needed for domain name support"""
     from ..libs import gateway
 
-    config = cli_load(target_env or mu.config.default_env())
-    gw = gateway.Gateway(config, 'poster.level12.app')
-    if action == 'get':
-        pprint(gw.cert)
-        pprint(gw.cert_describe(gw.cert.arn))
+    config: Config = cli_load(target_env or mu.config.default_env())
+    assert config.domain_name
+
+    gw = gateway.Gateway(config)
+    if action == 'show':
+        pprint(gw.cert_describe())
         return
 
     if action == 'delete':
@@ -212,4 +190,4 @@ def status(target_env: str):
     """Check status of all infrastructure components for the app"""
     config = cli_load(target_env or mu.config.default_env())
 
-    LambdaStatus.load_all(config)
+    print(Status.fetch(config))

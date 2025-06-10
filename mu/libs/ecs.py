@@ -58,7 +58,7 @@ class ECS:
     def provision(self, resource_ident):
         self.cluster(resource_ident).ensure()
 
-    def deploy(self, resource_ident, role_arn, ):
+    def deploy(self, resource_ident, role_arn):
         self.ecs.register_task_definition(
             family=resource_ident,
             executionRoleArn=role_arn,

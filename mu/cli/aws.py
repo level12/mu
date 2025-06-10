@@ -5,7 +5,7 @@ import click
 
 from ..cli import cli
 from ..config import Config, cli_load
-from ..libs import api_gateway, auth, ec2, ecr, ecs
+from ..libs import api_gateway, auth, ec2, ecr, ecs, gateway
 
 
 log = logging.getLogger()
@@ -156,3 +156,9 @@ def api_gateways(verbose: bool):
             print(ag.name, ag, sep='\n')
         else:
             print(ag.name, ag.created_date, ag.api_id)
+
+
+@aws.command()
+def gateway_cleanup():
+    b3_sess = auth.b3_sess()
+    gateway.acct_cleanup(b3_sess)

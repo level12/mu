@@ -3,8 +3,8 @@ import logging
 import pytest
 
 import mu.config
-from mu.libs import ecr, iam
-from mu.libs.lamb import Lambda
+from mu.libs import ecr, iam, testing
+from mu.libs.lamb import FunctionPermissions, Lambda, PolicyStatement
 from mu.libs.testing import Logs, data_read
 from mu.tests.data import log_events
 
@@ -202,3 +202,55 @@ class TestLambdaLogs:
 
     def test_exc_extras(self, capsys):
         self.check_event(capsys, log_events.exc_extras, 'exc-extras.txt')
+
+
+@pytest.mark.integration
+class TestLambdaCRUD:
+    def test_permissions(self, config: mu.config.Config, b3_sess, logs: Logs):
+        statement_id = config.api_invoke_stmt_id
+        lambda_perms = FunctionPermissions(b3_sess)
+        assert lambda_perms._list_recs is None
+
+        # Recreate the tmp lambda so we can be sure no permissions exist on it at the start of the
+        # test
+        tmp_la = testing.tmp_lambda(b3_sess, config, recreate=True)
+        config._func_arn_override = tmp_la.FunctionArn
+        logs.clear()
+
+        # # Ensure created
+        lambda_perms.ensure(
+            statement_id,
+            config=config,
+            perm_type='api-invoke',
+            api_key='foo',
+        )
+        stmt: PolicyStatement = lambda_perms.get(statement_id)
+        assert stmt.Sid == statement_id
+        assert stmt.Effect == 'Allow'
+        assert stmt.Action == 'lambda:InvokeFunction'
+        assert stmt.Principal == {'Service': 'apigateway.amazonaws.com'}
+        assert stmt.Condition == {
+            'ArnLike': {'AWS:SourceArn': 'arn:aws:execute-api:us-east-2:429829037495:foo/*/*'},
+        }
+
+        # No error when exists and should be cached
+        lambda_perms.ensure(
+            statement_id,
+            config=config,
+            perm_type='api-invoke',
+            api_key='foo',
+        )
+        assert lambda_perms.get(statement_id)
+
+        # Delete
+        lambda_perms.delete(statement_id, tmp_la.FunctionArn)
+        assert lambda_perms.get(statement_id, tmp_la.FunctionArn) is None
+
+        # No error when not present
+        lambda_perms.delete(statement_id, tmp_la.FunctionArn)
+
+        assert logs.messages == [
+            'FunctionPermissions ensure: record created',
+            'FunctionPermissions ensure: record existed',
+            'FunctionPermissions delete: record deleted',
+        ]

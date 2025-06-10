@@ -7,7 +7,6 @@ import boto3
 from methodtools import lru_cache
 
 
-
 log = logging.getLogger(__name__)
 
 

@@ -1,13 +1,16 @@
-from contextlib import contextmanager
 import io
 import logging
+from os import environ
 from pathlib import Path
 from unittest import mock
 import zipfile
 
 import mu.config
-from mu.libs import auth, gateway
+from mu.libs import auth, gateway, iam, lamb, sts
 from mu.tests import data
+
+
+PERSISTENT_CERT_DOMAIN = 'mu-testing-cert.level12.app'
 
 
 def mock_patch_obj(*args, **kwargs):
@@ -84,13 +87,34 @@ def lambda_code():
     }
 
 
-@contextmanager
-def tmp_lambda(b3_sess, config):
+def tmp_lambda(b3_sess, config: mu.config.Config, recreate=False) -> lamb.Function:
     lambda_name = config.lambda_ident + 'tmp-lambda'
-    lambdas = gateway.Lambdas(b3_sess)
-    la = lambdas.ensure(lambda_name, Role=config.role_arn, **lambda_code())
-    yield la
+    funcs = lamb.Functions(b3_sess)
+    if recreate:
+        funcs.delete(lambda_name)
+    func = funcs.get(lambda_name)
+    if not func:
+        iam.Roles(b3_sess).ensure_role(
+            config.resource_ident,
+            {'Service': 'lambda.amazonaws.com'},
+            config.policy_arns,
+        )
+    return funcs.ensure(lambda_name, Role=config.role_arn, **lambda_code())
 
 
-def b3_sess():
-    return auth.b3_sess('us-east-fake', testing=True)
+def b3_sess(*, kind: str = 'fake'):
+    assert kind in ('mu-testing-live', 'fake')
+    if kind == 'fake':
+        return auth.b3_sess(region_name='us-east-fake', testing=True)
+
+    sess = auth.b3_sess()
+    aid = sts.account_id(sess)
+
+    # Ensure we aren't accidently working on an unintended account.
+    assert aid == environ.get('MU_TEST_ACCT_ID')
+
+    return sess
+
+
+def persistent_cert(b3_sess) -> gateway.ACMCert:
+    return gateway.ACMCerts(b3_sess).ensure(PERSISTENT_CERT_DOMAIN)

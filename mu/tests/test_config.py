@@ -43,6 +43,7 @@ class TestConfig:
 
         c = load('pkg2')
         assert c.resource_ident == 'starfleet-tng-lambda-func-qa'
+        assert c.domain_name == 'pkg2.example.com'
 
     def test_sqs_configs(self):
         conf = load('pkg-sqs')
@@ -59,3 +60,4 @@ class TestConfig:
         )
         assert conf.lambda_ident == 'greek-mu-func-qa'
         assert conf.resource_ident == 'greek-mu-lambda-func-qa'
+        assert conf.domain_name is None

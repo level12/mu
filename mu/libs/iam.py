@@ -5,7 +5,6 @@ import logging
 import boto3
 from methodtools import lru_cache
 
-
 from . import sts
 
 

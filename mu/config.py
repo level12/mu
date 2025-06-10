@@ -43,6 +43,7 @@ class Config:
     env: str
     project_org: str
     project_name: str
+    domain_name: str | None = None
     _image_name: str = ''
     action_key: str = 'do-action'
     compose_service: str = 'app'  # for building
@@ -61,6 +62,7 @@ class Config:
     vpc_subnet_names: list[str] = field(default_factory=list)
     vpc_subnet_name_tag_key: str = 'Name'
     vpc_security_group_names: list[str] = field(default_factory=list)
+    _func_arn_override: str | None = None
 
     def apply_sess(self, sess: boto3.Session, testing=False):
         self.aws_region = sess.region_name
@@ -103,6 +105,9 @@ class Config:
 
     @property
     def function_arn(self):
+        if self._func_arn_override:
+            return self._func_arn_override
+
         return f'arn:aws:lambda:{self.aws_region}:{self.aws_acct_id}:function:{self.lambda_ident}'
 
     @property
@@ -112,6 +117,10 @@ class Config:
     @property
     def sqs_resource(self):
         return f'arn:aws:sqs:{self.aws_region}:{self.aws_acct_id}:{self.resource_ident}-*'
+
+    @property
+    def api_invoke_stmt_id(self):
+        return f'{self.resource_ident}-api-invoke'
 
     def aws_configs(self, kind: str):
         return self.aws_config.get(kind, {})
@@ -164,7 +173,7 @@ def default_env():
     return environ.get('MU_DEFAULT_ENV') or utils.host_user()
 
 
-def load(start_at: Path, env: str):
+def load(start_at: Path, env: str) -> Config:
     pp_fpath = find_upwards(start_at, 'pyproject.toml')
     if pp_fpath is None:
         raise Exception(f'No pyproject.toml found in {start_at} or parents')
@@ -187,6 +196,7 @@ def load(start_at: Path, env: str):
         env=env,
         project_org=deep_get(config, key_prefix, 'project-org', required=True),
         project_name=deep_get(pp_config, '', 'project.name', required=True),
+        domain_name=deep_get(config, key_prefix, 'domain-name'),
         _project_ident=deep_get(config, key_prefix, 'project-ident'),
         lambda_name=deep_get(config, key_prefix, 'lambda-name', 'func'),
         _image_name=deep_get(config, key_prefix, 'image-name'),

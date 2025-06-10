@@ -77,6 +77,19 @@ def take(from_: dict, *keys, strict=True):
     return {k: from_[k] for k in keys if strict or k in from_}
 
 
+def deep_merge(base, overrides, ignore_extras: bool = True):
+    result = dict(base)
+    for key, override_value in overrides.items():
+        if key not in base and ignore_extras:
+            continue
+        base_value = result.get(key)
+        if isinstance(base_value, dict) and isinstance(override_value, dict):
+            result[key] = deep_merge(base_value, override_value)
+        else:
+            result[key] = override_value
+    return result
+
+
 def host_user():
     return f'{getpass.getuser()}.{platform.node()}'
 
@@ -154,3 +167,10 @@ class B3DataClass:
 
     def __str__(self):
         return pprint.pformat(asdict(self))
+
+
+def first(iterable, empty_val=None):
+    try:
+        return next(iter(iterable))
+    except StopIteration:
+        return empty_val
