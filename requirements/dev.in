@@ -1,4 +1,0 @@
--r ci.txt
-
-ruff
-pre-commit

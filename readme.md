@@ -1,5 +1,5 @@
-Mu
-================================================
+# Mu
+[![nox](https://github.com/level12/mu/actions/workflows/nox.yaml/badge.svg)](https://github.com/level12/mu/actions/workflows/nox.yaml)
 
 AWS Lambda support for Python projects.
 
@@ -159,9 +159,36 @@ Be mindeful of:
 - [retries](https://docs.aws.amazon.com/lambda/latest/dg/invocation-retries.html)
 
 
-## Testing
+## Dev
 
-### Credentials
+### Copier Template
+
+Project structure and tooling mostly derives from the [Coppy](https://github.com/level12/coppy),
+see its documentation for context and additional instructions.
+
+This project can be updated from the upstream repo, see
+[Updating a Project](https://github.com/level12/coppy?tab=readme-ov-file#updating-a-project).
+
+### Project Setup
+
+From zero to hero (passing tests that is):
+
+1. Ensure [host dependencies](https://github.com/level12/coppy/wiki/Mise) are installed
+
+2. Sync [project](https://docs.astral.sh/uv/concepts/projects/) virtualenv w/ lock file:
+
+   `uv sync`
+
+3. Configure pre-commit:
+
+   `pre-commit install`
+
+4. Run tests w/ `nox` or `pytest` but see notes just below first.
+
+
+### Testing
+
+#### Credentials
 
 This project has a lot of integration tests that use live AWS.  You SHOULD have a dedicated AWS
 **account** for mu testing.
@@ -171,6 +198,28 @@ and a "mu-test" profile to load AWS creds.  But, you can use any method you pref
 [credentials for boto3](https://boto3.amazonaws.com/v1/documentation/api/latest/guide/credentials.html).
 
 
-### Running tests
+#### Running tests
 
-No CI yet due to need for an AWS account.  Run locally with `tox` or `pytest`.
+- Setup AWS credentials (see notes above)
+- Add `mise.local.toml` to override `MU_TEST_ACCT_ID`
+- `nox` or `pytest`
+- Some integration tests are marked as such (other integration tests should get marked)
+   - `pytest -m 'not integration'` ...` will skip integration tests
+   - `pytest -m 'integration'` ...` will target integration tests
+
+
+### Versions
+
+Versions are date based.  A `bump` action exists to help manage versions:
+
+```shell
+
+  # Show current version
+  mise bump --show
+
+  # Bump version based on date, tag, and push:
+  mise bump
+
+  # See other options
+  mise bump -- --help
+```
