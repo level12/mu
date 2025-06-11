@@ -1,9 +1,23 @@
 [env]
+PROJECT_SLUG = '{{ config_root | basename | slugify }}'
+
+_.python.venv.path = '{% if env.UV_PROJECT_ENVIRONMENT %}{{ env.UV_PROJECT_ENVIRONMENT }}{% else %}.venv{% endif %}'
+_.python.venv.create = true
+
+
 FLASK_DEBUG = '1'
 
-# Override in a local mise config file if this doesn't match your acct.
+# Override in a local mise.local.toml to match the id of the AWS account you use when testing mu.
+# This should be a DEDICATED TEST ACCOUNT, don't risk it by using a shared account.
 MU_TEST_ACCT_ID = '429829037495'
 
-[tools]
-python.version = "3.11"
-python.virtualenv = "{{env.WORKON_HOME}}/mu-dev"
+
+[task_config]
+includes = [
+    'tasks',
+]
+
+
+[settings]
+# Coppy projects uses .python-version because both mise and uv respect it.
+idiomatic_version_file_enable_tools = ['python']

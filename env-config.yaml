@@ -1,3 +1,25 @@
+# Example AWS CONFIG
+#
+#
+# [profile example-org]
+# region = us-east-2
+# output = json
+# mfa_serial = arn:aws:iam::...
+# credential_process = env-config-aws example-org
+# envconfig_1pass = op://example-org/Employee/aws-secrets-item
+
+# [profile mu-test]
+# source_profile = example-org
+# role_arn = arn:aws:iam::429829037495:role/OrganizationAccountAccessRole
+# region = us-east-2
+
+# [profile mu-ci]
+# source_profile = example-org
+# role_arn = arn:aws:iam::429829037495:role/mu-github-ci-role
+# region = us-east-2
+
 profile:
   aws-mu-test:
     AWS_PROFILE: mu-test
+  aws-mu-ci:
+    AWS_PROFILE: mu-ci

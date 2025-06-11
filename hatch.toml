@@ -1,0 +1,14 @@
+## Build
+[build]
+dev-mode-dirs = ['src']
+
+
+## Env: default
+[envs.default]
+installer = "uv"
+
+
+## Version
+[version]
+source = 'regex_commit'
+path = 'src/mu/version.py'
