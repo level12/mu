@@ -3,9 +3,9 @@ from pprint import pprint
 
 import click
 
-from ..cli import cli
 from ..config import Config, cli_load
 from ..libs import api_gateway, auth, ec2, ecr, ecs, gateway
+from .core import cli
 
 
 log = logging.getLogger()
