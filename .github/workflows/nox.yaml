@@ -12,6 +12,10 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   nox:
     runs-on: ubuntu-latest
@@ -23,6 +27,7 @@ jobs:
 
     env:
       UV_LINK_MODE: copy
+      MU_TEST_ACCT_ID: '429829037495'
 
     steps:
       - name: Checkout Code
@@ -30,6 +35,12 @@ jobs:
 
       - name: Mark repo as safe for Git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::429829037495:role/mu-github-ci-role
+          aws-region: us-east-2
 
       - name: Run Tests
         run: |
