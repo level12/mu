@@ -16,5 +16,3 @@ services:
     entrypoint: /bin/bash
     tty: true
     stdin_open: true
-
-

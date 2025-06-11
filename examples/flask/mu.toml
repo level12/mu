@@ -7,4 +7,3 @@ image-name = 'mu-flask'
 # Also respresents how quickly a celery worker would see a new task if the first
 # task errored out without sending a delete message to the queue.
 VisibilityTimeout = '3600' # 1 hour
-
