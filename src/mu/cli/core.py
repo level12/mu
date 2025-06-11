@@ -24,8 +24,11 @@ def auth_check(target_env):
     """Check AWS auth by displaying account info"""
     config: Config = cli_load(target_env)
     b3_sess = auth.b3_sess(config.aws_region)
-    acct_id: str = sts.account_id(b3_sess)
-    print('Account:', acct_id)
+    ident: str = sts.caller_identity(b3_sess)
+    print('Account:', ident['Account'])
+    print(f'User ID: {ident["UserId"]}')
+    print(f'User Arn: {ident["Arn"]}')
+
     print('Region:', b3_sess.region_name)
 
     orgc = b3_sess.client('organizations')
