@@ -5,7 +5,7 @@
 # Environment protection
 #  - https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment
 # Separate build & release
-name: pypi publish
+name: PyPI publish
 
 on:
   push:
@@ -14,47 +14,42 @@ on:
 
 jobs:
   build:
-    name: Build project using hatch
+    name: Build and publish
 
     runs-on: ubuntu-latest
 
     # TODO: recommended best practice
     # environment:
     #   name: pypi-publish
-    #   url: https://pypi.org/p/reqs-cli
-
-    outputs:
-      hash: ${{ steps.hash.outputs.hash }}
-
-    strategy:
-      matrix:
-        # No C code so one wheel sould be ok for all Python versions
-        python-version: ['3.12']
+    #   url: https://pypi.org/p/mu
 
     permissions:
       # required for pypa/gh-action-pypi-publish
       id-token: write
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
-    - name: Install Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
+    # https://docs.astral.sh/uv/guides/integration/github/#setting-up-python
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
       with:
-        python-version: ${{ matrix.python-version }}
+        enable-cache: true
+        cache-dependency-glob: "uv.lock"
 
-    - name: Python prep & info
+    - name: "Set up Python"
+      uses: actions/setup-python@v5
+      with:
+        python-version-file: ".python-version"
+
+    - name: Python prep & build
       run: |
-        echo "Python path `which python`"
-        python --version
+        uv pip install hatch
 
-        python -m pip install -U pip
-        pip --version
-
-        python -m pip install hatch
         hatch --version
 
         echo "Project version: `hatch version`"
+
         hatch build
 
     - name: Publish package distributions to PyPI

@@ -7,7 +7,7 @@ build-backend = 'hatchling.build'
 
 
 [project]
-name = 'Mu'
+name = 'AWS-Mu'
 authors = [
     {name = 'Randy Syring', email = 'randy.syring@level12.io'},
 ]

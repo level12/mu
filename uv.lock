@@ -48,6 +48,86 @@ wheels = [
 ]
 
 [[package]]
+name = "aws-mu"
+source = { editable = "." }
+dependencies = [
+    { name = "arrow" },
+    { name = "awsgi2" },
+    { name = "blazeutils" },
+    { name = "boto3" },
+    { name = "click" },
+    { name = "colorlog" },
+    { name = "cryptography" },
+    { name = "docker" },
+    { name = "methodtools" },
+    { name = "requests" },
+]
+
+[package.dev-dependencies]
+audit = [
+    { name = "pip-audit" },
+]
+dev = [
+    { name = "click" },
+    { name = "hatch" },
+    { name = "nox" },
+    { name = "pip-audit" },
+    { name = "pre-commit" },
+    { name = "pre-commit-uv" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+]
+nox = [
+    { name = "nox" },
+]
+pre-commit = [
+    { name = "pre-commit" },
+    { name = "pre-commit-uv" },
+]
+tests = [
+    { name = "pytest" },
+    { name = "pytest-cov" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "arrow", specifier = ">=1.3.0" },
+    { name = "awsgi2", specifier = ">=1.0.2" },
+    { name = "blazeutils", specifier = ">=0.7.0" },
+    { name = "boto3", specifier = ">=1.38.34" },
+    { name = "click", specifier = ">=8.2.1" },
+    { name = "colorlog", specifier = ">=6.9.0" },
+    { name = "cryptography", specifier = ">=45.0.4" },
+    { name = "docker", specifier = ">=7.1.0" },
+    { name = "methodtools", specifier = ">=0.4.7" },
+    { name = "requests", specifier = ">=2.32.4" },
+]
+
+[package.metadata.requires-dev]
+audit = [{ name = "pip-audit", specifier = ">=2.8.0" }]
+dev = [
+    { name = "click", specifier = ">=8.1.8" },
+    { name = "hatch", specifier = ">=1.14.0" },
+    { name = "nox", specifier = ">=2025.2.9" },
+    { name = "pip-audit", specifier = ">=2.8.0" },
+    { name = "pre-commit", specifier = ">=4.1.0" },
+    { name = "pre-commit-uv", specifier = ">=4.1.4" },
+    { name = "pytest", specifier = ">=8.3.4" },
+    { name = "pytest-cov", specifier = ">=6.0" },
+    { name = "ruff", specifier = ">=0.9.6" },
+]
+nox = [{ name = "nox", specifier = ">=2025.2.9" }]
+pre-commit = [
+    { name = "pre-commit", specifier = ">=4.1.0" },
+    { name = "pre-commit-uv", specifier = ">=4.1.4" },
+]
+tests = [
+    { name = "pytest", specifier = ">=8.3.4" },
+    { name = "pytest-cov", specifier = ">=6.0" },
+]
+
+[[package]]
 name = "awsgi2"
 version = "1.0.2"
 source = { registry = "https://pypi.org/simple" }
@@ -667,86 +747,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/7a/40/631c238f1f338eb09f4acb0f34ab5862c4e9d7eda11c1b685471a4c5ea37/msgpack-1.1.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:b4c01941fd2ff87c2a934ee6055bda4ed353a7846b8d4f341c428109e9fcde8c", size = 399082, upload-time = "2024-09-10T04:25:18.398Z" },
     { url = "https://files.pythonhosted.org/packages/e9/1b/fa8a952be252a1555ed39f97c06778e3aeb9123aa4cccc0fd2acd0b4e315/msgpack-1.1.0-cp313-cp313-win32.whl", hash = "sha256:7c9a35ce2c2573bada929e0b7b3576de647b0defbd25f5139dcdaba0ae35a4cc", size = 69037, upload-time = "2024-09-10T04:24:52.798Z" },
     { url = "https://files.pythonhosted.org/packages/b6/bc/8bd826dd03e022153bfa1766dcdec4976d6c818865ed54223d71f07862b3/msgpack-1.1.0-cp313-cp313-win_amd64.whl", hash = "sha256:bce7d9e614a04d0883af0b3d4d501171fbfca038f12c77fa838d9f198147a23f", size = 75140, upload-time = "2024-09-10T04:24:31.288Z" },
-]
-
-[[package]]
-name = "mu"
-source = { editable = "." }
-dependencies = [
-    { name = "arrow" },
-    { name = "awsgi2" },
-    { name = "blazeutils" },
-    { name = "boto3" },
-    { name = "click" },
-    { name = "colorlog" },
-    { name = "cryptography" },
-    { name = "docker" },
-    { name = "methodtools" },
-    { name = "requests" },
-]
-
-[package.dev-dependencies]
-audit = [
-    { name = "pip-audit" },
-]
-dev = [
-    { name = "click" },
-    { name = "hatch" },
-    { name = "nox" },
-    { name = "pip-audit" },
-    { name = "pre-commit" },
-    { name = "pre-commit-uv" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-]
-nox = [
-    { name = "nox" },
-]
-pre-commit = [
-    { name = "pre-commit" },
-    { name = "pre-commit-uv" },
-]
-tests = [
-    { name = "pytest" },
-    { name = "pytest-cov" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "arrow", specifier = ">=1.3.0" },
-    { name = "awsgi2", specifier = ">=1.0.2" },
-    { name = "blazeutils", specifier = ">=0.7.0" },
-    { name = "boto3", specifier = ">=1.38.34" },
-    { name = "click", specifier = ">=8.2.1" },
-    { name = "colorlog", specifier = ">=6.9.0" },
-    { name = "cryptography", specifier = ">=45.0.4" },
-    { name = "docker", specifier = ">=7.1.0" },
-    { name = "methodtools", specifier = ">=0.4.7" },
-    { name = "requests", specifier = ">=2.32.4" },
-]
-
-[package.metadata.requires-dev]
-audit = [{ name = "pip-audit", specifier = ">=2.8.0" }]
-dev = [
-    { name = "click", specifier = ">=8.1.8" },
-    { name = "hatch", specifier = ">=1.14.0" },
-    { name = "nox", specifier = ">=2025.2.9" },
-    { name = "pip-audit", specifier = ">=2.8.0" },
-    { name = "pre-commit", specifier = ">=4.1.0" },
-    { name = "pre-commit-uv", specifier = ">=4.1.4" },
-    { name = "pytest", specifier = ">=8.3.4" },
-    { name = "pytest-cov", specifier = ">=6.0" },
-    { name = "ruff", specifier = ">=0.9.6" },
-]
-nox = [{ name = "nox", specifier = ">=2025.2.9" }]
-pre-commit = [
-    { name = "pre-commit", specifier = ">=4.1.0" },
-    { name = "pre-commit-uv", specifier = ">=4.1.4" },
-]
-tests = [
-    { name = "pytest", specifier = ">=8.3.4" },
-    { name = "pytest-cov", specifier = ">=6.0" },
 ]
 
 [[package]]
