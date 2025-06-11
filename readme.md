@@ -1,5 +1,7 @@
 # Mu
 [![nox](https://github.com/level12/mu/actions/workflows/nox.yaml/badge.svg)](https://github.com/level12/mu/actions/workflows/nox.yaml)
+[![pypi](https://img.shields.io/pypi/v/aws-mu)](https://pypi.org/project/aws-mu/)
+
 
 AWS Lambda support for Python projects.
 
