@@ -2,8 +2,8 @@ import datetime as dt
 
 import pytest
 
-from ..libs import utils
-from ..libs.sqs import SQS, Queue
+from mu.libs import utils
+from mu.libs.sqs import SQS, Queue
 
 
 @pytest.fixture(scope='module')

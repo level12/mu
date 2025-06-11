@@ -52,12 +52,12 @@ class TestAsyncTask:
         task.invoke(1, 2, foo='bar', now=dt.date(2026, 5, 19))
 
         assert logs.messages == [
-            'Async task invoke: mu-task-func -> mu.tests.test_tasks:enterprise_d;'
+            'Async task invoke: mu-task-func -> mu_tests.test_tasks:enterprise_d;'
             ' Request ID: abc-123',
         ]
 
         payload = (
-            '{"task-path": "mu.tests.test_tasks:enterprise_d", "args": [1, 2],'
+            '{"task-path": "mu_tests.test_tasks:enterprise_d", "args": [1, 2],'
             ' "kwargs": {"foo": "bar", "now": "2026-05-19"}}'
         )
         m_invoke.assert_called_once_with(
@@ -70,7 +70,7 @@ class TestAsyncTask:
 def test_call_task():
     result = tasks.call_task(
         {
-            'task-path': 'mu.tests.test_tasks:enterprise_d',
+            'task-path': 'mu_tests.test_tasks:enterprise_d',
             'args': ['a'],
             'kwargs': {'arg2': 'b'},
         },
@@ -85,7 +85,7 @@ class TestTask:
         enterprise_e.invoke('a', arg2='b')
 
         payload = (
-            '{"task-path": "mu.tests.test_tasks:enterprise_e", "args": ["a"],'
+            '{"task-path": "mu_tests.test_tasks:enterprise_e", "args": ["a"],'
             ' "kwargs": {"arg2": "b"}}'
         )
         m_invoke.assert_called_once_with(
@@ -100,7 +100,7 @@ class TestTask:
         enterprise_f.invoke('a', arg2='b')
 
         payload = (
-            '{"task-path": "mu.tests.test_tasks:enterprise_f", "args": ["a"],'
+            '{"task-path": "mu_tests.test_tasks:enterprise_f", "args": ["a"],'
             ' "kwargs": {"arg2": "b"}}'
         )
         m_invoke.assert_called_once_with(

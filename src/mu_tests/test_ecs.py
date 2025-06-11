@@ -1,7 +1,7 @@
 import pytest
 
-from ..libs.ecs import ECS
-from ..libs.testing import Logs
+from mu.libs.ecs import ECS
+from mu.libs.testing import Logs
 
 
 @pytest.fixture(scope='module')

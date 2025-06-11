@@ -1,4 +1,3 @@
-
 import docker
 import docker.errors
 import pytest

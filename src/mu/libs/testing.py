@@ -7,7 +7,7 @@ import zipfile
 
 import mu.config
 from mu.libs import auth, gateway, iam, lamb, sts
-from mu.tests import data
+from mu_tests import data
 
 
 PERSISTENT_CERT_DOMAIN = 'mu-testing-cert.level12.app'

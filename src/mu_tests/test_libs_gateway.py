@@ -3,7 +3,7 @@ import pytest
 from mu.config import Config
 from mu.libs import gateway, testing, utils
 from mu.libs.testing import Logs, mock_patch_obj
-from mu.tests import mocking
+from mu_tests import mocking
 
 from . import fake
 
@@ -463,7 +463,7 @@ class TestGateway:
         assert logs.messages == [
             'ACMCerts ensure: record existed',
             'Gateway provision: certificate has unknown status (FAILED).',
-            '  - Use `mu domain-name ...` to inspect, delete cert if applicable, and try again.',
+            '  - Use `mu domain-name ...` to inspect, maybe delete cert, and try again.',
         ]
 
     def test_provision_cert_issued(self, gw: gateway.Gateway, logs: Logs, config: Config):

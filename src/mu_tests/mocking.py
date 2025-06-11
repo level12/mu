@@ -8,7 +8,7 @@ from blazeutils.strings import randchars
 from mu.libs import gateway, utils
 from mu.libs.aws_recs import AWSRecsCRUD
 from mu.libs.testing import mock_patch_obj
-from mu.tests import fake
+from mu_tests import fake
 
 
 @dataclass

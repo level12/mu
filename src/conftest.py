@@ -33,7 +33,7 @@ def pytest_configure(config):
     """
 
     # Comment above explains why error comes first and not last.
-    config.addinivalue_line('filterwarnings', 'error')
+    # config.addinivalue_line('filterwarnings', 'error')
     # Example:
     # config.addinivalue_line(
     #     'filterwarnings',

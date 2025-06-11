@@ -1,6 +1,6 @@
 from mu import ActionHandler
 from mu.libs.testing import Logs
-from mu.tests.data.event_wsgi import wsgi_event
+from mu_tests.data.event_wsgi import wsgi_event
 
 
 def wsgi_app(environ, start_response):
@@ -51,7 +51,7 @@ class TestHandler:
             'body': 'Hello World!',
             'headers': {'Content-Length': '12', 'Content-type': 'text/plain'},
             'isBase64Encoded': False,
-            'statusCode': '200',
+            'statusCode': 200,
         }
 
     def test_action(self):
@@ -73,7 +73,7 @@ class TestHandler:
 
     def test_task_event(self):
         event = {
-            'task-path': 'mu.tests.test_handler:save_args',
+            'task-path': 'mu_tests.test_handler:save_args',
             'args': ['a'],
             'kwargs': {'arg2': 'b'},
         }

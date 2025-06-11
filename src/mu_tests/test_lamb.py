@@ -6,7 +6,7 @@ import mu.config
 from mu.libs import ecr, iam, testing
 from mu.libs.lamb import FunctionPermissions, Lambda, PolicyStatement
 from mu.libs.testing import Logs, data_read
-from mu.tests.data import log_events
+from mu_tests.data import log_events
 
 
 @pytest.fixture
