@@ -5,12 +5,16 @@
 # Environment protection
 #  - https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment
 # Separate build & release
+
 name: PyPI publish
+
 
 on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+
 
 jobs:
   build:
@@ -44,13 +48,13 @@ jobs:
 
     - name: Python prep & build
       run: |
-        uv pip install hatch
+        uv sync --locked
 
-        hatch --version
+        uv run hatch --version
 
-        echo "Project version: `hatch version`"
+        echo "Project version: `uv run hatch version`"
 
-        hatch build
+        uv run hatch build
 
     - name: Publish package distributions to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
