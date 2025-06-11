@@ -1,0 +1,61 @@
+# Example:
+#  - https://github.com/pallets/flask/blob/main/.github/workflows/tests.yaml
+# TODO:
+# GH release
+# Environment protection
+#  - https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment
+# Separate build & release
+name: pypi publish
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    name: Build project using hatch
+
+    runs-on: ubuntu-latest
+
+    # TODO: recommended best practice
+    # environment:
+    #   name: pypi-publish
+    #   url: https://pypi.org/p/reqs-cli
+
+    outputs:
+      hash: ${{ steps.hash.outputs.hash }}
+
+    strategy:
+      matrix:
+        # No C code so one wheel sould be ok for all Python versions
+        python-version: ['3.12']
+
+    permissions:
+      # required for pypa/gh-action-pypi-publish
+      id-token: write
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Python prep & info
+      run: |
+        echo "Python path `which python`"
+        python --version
+
+        python -m pip install -U pip
+        pip --version
+
+        python -m pip install hatch
+        hatch --version
+
+        echo "Project version: `hatch version`"
+        hatch build
+
+    - name: Publish package distributions to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
