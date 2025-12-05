@@ -1,9 +1,10 @@
+from pathlib import Path
 from pprint import pprint
 
 import click
 
 import mu.config
-from mu.config import Config, cli_load
+from mu.config import Config, default_env, load
 from mu.libs import auth, logs, sqs, sts, utils
 from mu.libs.lamb import Lambda
 from mu.libs.status import Status
@@ -13,16 +14,31 @@ log = logs.logger()
 
 
 @click.group()
+@click.option(
+    '--config',
+    'config_path',
+    type=click.Path(path_type=Path),
+    help='Path to mu config file',
+    envvar='MU_CONFIG_PATH',
+)
 @logs.click_options
-def cli(log_level: str):
+@click.pass_context
+def cli(ctx: click.Context, log_level: str, config_path: Path | None):
     logs.init_logging(log_level)
+    ctx.ensure_object(dict)
+
+    def load_config(env: str | None = None) -> Config:
+        return load(Path.cwd(), env or default_env(), config_path)
+
+    ctx.obj['load_config'] = load_config
 
 
 @cli.command()
 @click.argument('target_env', required=False)
-def auth_check(target_env):
+@click.pass_context
+def auth_check(ctx: click.Context, target_env):
     """Check AWS auth by displaying account info"""
-    config: Config = cli_load(target_env)
+    config: Config = ctx.obj['load_config'](target_env)
     b3_sess = auth.b3_sess(config.aws_region)
     ident: str = sts.caller_identity(b3_sess)
     print('Account:', ident['Account'])
@@ -42,9 +58,10 @@ def auth_check(target_env):
 @cli.command()
 @click.argument('target_env', required=False)
 @click.option('--resolve-env', is_flag=True, help='Show env after resolution (e.g. secrets)')
-def config(target_env: str, resolve_env: bool):
+@click.pass_context
+def config(ctx: click.Context, target_env: str, resolve_env: bool):
     """Display mu config for active project"""
-    config: Config = cli_load(target_env)
+    config: Config = ctx.obj['load_config'](target_env)
 
     sess = auth.b3_sess(config.aws_region)
     config.apply_sess(sess)
@@ -54,12 +71,13 @@ def config(target_env: str, resolve_env: bool):
 
 @cli.command()
 @click.argument('envs', nargs=-1)
-def provision(envs: list[str]):
+@click.pass_context
+def provision(ctx: click.Context, envs: list[str]):
     """Provision lambda function in environment given (or default)"""
     envs = envs or [None]
 
     for env in envs:
-        lamb = Lambda(cli_load(env))
+        lamb = Lambda(ctx.obj['load_config'](env))
         lamb.provision()
 
 
@@ -67,11 +85,11 @@ def provision(envs: list[str]):
 @click.argument('envs', nargs=-1)
 @click.option('--build', is_flag=True)
 @click.pass_context
-def deploy(ctx, envs: list[str], build: bool):
+def deploy(ctx: click.Context, envs: list[str], build: bool):
     """Deploy local image to ecr, update lambda"""
     envs = envs or [mu.config.default_env()]
 
-    configs = [cli_load(env) for env in envs]
+    configs = [ctx.obj['load_config'](env) for env in envs]
 
     if build:
         service_names = [config.compose_service for config in configs]
@@ -85,18 +103,19 @@ def deploy(ctx, envs: list[str], build: bool):
 @cli.command()
 @click.argument('target_env')
 @click.option('--force-repo', is_flag=True)
-def delete(target_env: str, force_repo: bool):
+@click.pass_context
+def delete(ctx: click.Context, target_env: str, force_repo: bool):
     """Delete lambda and optionally related infra"""
-    lamb = Lambda(cli_load(target_env))
+    lamb = Lambda(ctx.obj['load_config'](target_env))
     lamb.delete(target_env, force_repo=force_repo)
 
 
 @cli.command()
 @click.argument('target_env', required=False)
-def build(target_env: str):
+@click.pass_context
+def build(ctx: click.Context, target_env: str):
     """Build lambda container with docker compose"""
-
-    conf = cli_load(target_env)
+    conf = ctx.obj['load_config'](target_env)
     utils.compose_build(conf.compose_service)
 
 
@@ -107,10 +126,16 @@ def build(target_env: str):
 @click.option('--host', default='localhost:8080')
 @click.option('--local', is_flag=True)
 @click.pass_context
-def invoke(ctx, target_env: str, action: str, host: str, action_args: list, local: bool):
+def invoke(
+    ctx: click.Context,
+    target_env: str,
+    action: str,
+    host: str,
+    action_args: list,
+    local: bool,
+):
     """Invoke lambda with diagnostics or given action"""
-
-    lamb = Lambda(cli_load(target_env))
+    lamb = Lambda(ctx.obj['load_config'](target_env))
     if local:
         result = lamb.invoke_rei(host, action, action_args)
     else:
@@ -138,7 +163,7 @@ def _logs(
     if not first and not last:
         last = 10 if streams else 25
 
-    lamb = Lambda(cli_load(target_env))
+    lamb = Lambda(ctx.obj['load_config'](target_env))
     lamb.logs(first, last, streams)
 
 
@@ -164,11 +189,12 @@ def sqs_list(ctx: click.Context, verbose: bool, delete: bool, name_prefix=str):
 @cli.command()
 @click.argument('action', type=click.Choice(('show', 'provision', 'delete')))
 @click.argument('target_env', required=False)
-def domain_name(target_env: str, action: str):
+@click.pass_context
+def domain_name(ctx: click.Context, target_env: str, action: str):
     """Manage AWS config needed for domain name support"""
     from ..libs import gateway
 
-    config: Config = cli_load(target_env or mu.config.default_env())
+    config: Config = ctx.obj['load_config'](target_env)
     assert config.domain_name
 
     gw = gateway.Gateway(config)
@@ -189,8 +215,9 @@ def domain_name(target_env: str, action: str):
 
 @cli.command()
 @click.argument('target_env', required=False)
-def status(target_env: str):
+@click.pass_context
+def status(ctx: click.Context, target_env: str | None):
     """Check status of all infrastructure components for the app"""
-    config = cli_load(target_env or mu.config.default_env())
+    config = ctx.obj['load_config'](target_env)
 
     print(Status.fetch(config))

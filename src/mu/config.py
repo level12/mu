@@ -173,12 +173,18 @@ def default_env():
     return environ.get('MU_DEFAULT_ENV') or utils.host_user()
 
 
-def load(start_at: Path, env: str) -> Config:
+def load(start_at: Path, env: str, mu_fpath: Path | None = None) -> Config:
     pp_fpath = find_upwards(start_at, 'pyproject.toml')
     if pp_fpath is None:
         raise Exception(f'No pyproject.toml found in {start_at} or parents')
 
-    mu_fpath = pp_fpath.with_name('mu.toml')
+    if mu_fpath:
+        if not mu_fpath.exists():
+            raise Exception(f'Config file not found: {mu_fpath}')
+        mu_fpath = mu_fpath
+    else:
+        mu_fpath = pp_fpath.with_name('mu.toml')
+
     if mu_fpath.exists():
         config_fpath = mu_fpath
         key_prefix = ''
@@ -222,7 +228,3 @@ def load(start_at: Path, env: str) -> Config:
             default=(),
         ),
     )
-
-
-def cli_load(env) -> Config:
-    return load(Path.cwd(), env or default_env())

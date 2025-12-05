@@ -3,7 +3,7 @@ from pprint import pprint
 
 import click
 
-from ..config import Config, cli_load
+from ..config import Config
 from ..libs import api_gateway, auth, ec2, ecr, ecs, gateway
 from .core import cli
 
@@ -21,9 +21,10 @@ def aws():
 @click.option('--name-prefix', help='Filter on name tag')
 @click.option('--name-key', help='Key of tag to use for name', default='Name')
 @click.option('--verbose', '-v', is_flag=True)
-def subnets(target_env, name_prefix, name_key, verbose):
+@click.pass_context
+def subnets(ctx: click.Context, target_env, name_prefix, name_key, verbose):
     """List ec2 subnets"""
-    config: Config = cli_load(target_env)
+    config: Config = ctx.obj['load_config'](target_env)
     b3_sess = auth.b3_sess(config.aws_region)
 
     for name, subnet in ec2.describe_subnets(b3_sess, name_prefix, name_key).items():
@@ -36,9 +37,10 @@ def subnets(target_env, name_prefix, name_key, verbose):
 @click.argument('only_names', nargs=-1)
 @click.option('--env', 'target_env')
 @click.option('--verbose', '-v', is_flag=True)
-def security_groups(target_env, only_names, verbose):
+@click.pass_context
+def security_groups(ctx: click.Context, target_env, only_names, verbose):
     """List ec2 subnets"""
-    config: Config = cli_load(target_env)
+    config: Config = ctx.obj['load_config'](target_env)
     b3_sess = auth.b3_sess(config.aws_region)
 
     for name, group in ec2.describe_security_groups(b3_sess, only_names).items():
@@ -50,9 +52,10 @@ def security_groups(target_env, only_names, verbose):
 @aws.command()
 @click.option('--env', 'target_env')
 @click.option('--verbose', '-v', is_flag=True)
-def ecs_clusters(target_env, verbose):
+@click.pass_context
+def ecs_clusters(ctx: click.Context, target_env, verbose):
     """List App Runner instance configurations"""
-    config: Config = cli_load(target_env)
+    config: Config = ctx.obj['load_config'](target_env)
     b3_sess = auth.b3_sess(config.aws_region)
 
     ecs_ = ecs.ECS(b3_sess)
@@ -65,7 +68,7 @@ def ecs_clusters(target_env, verbose):
 @click.pass_context
 def ecr_push(ctx: click.Context, target_env: str | None):
     """Push built image to ecr"""
-    config: Config = cli_load(target_env)
+    config: Config = ctx.obj['load_config'](target_env)
     repo_name = config.resource_ident
     print(config.aws_region)
     repos = ecr.Repos(auth.b3_sess(config.aws_region))
@@ -77,9 +80,10 @@ def ecr_push(ctx: click.Context, target_env: str | None):
 @cli.command()
 @click.argument('target_env', required=False)
 @click.option('--verbose', is_flag=True)
-def ecr_repos(verbose: bool, target_env: str | None):
+@click.pass_context
+def ecr_repos(ctx: click.Context, verbose: bool, target_env: str | None):
     """List ECR repos in active account"""
-    config: Config = cli_load(target_env)
+    config: Config = ctx.obj['load_config'](target_env)
     b3_sess = auth.b3_sess(config.aws_region)
 
     repos = ecr.Repos(b3_sess)
@@ -94,9 +98,10 @@ def ecr_repos(verbose: bool, target_env: str | None):
 @click.argument('repo_name', required=False)
 @click.option('--verbose', is_flag=True)
 @click.option('--env', 'target_env')
-def ecr_images(verbose: bool, target_env: str | None, repo_name: str | None):
+@click.pass_context
+def ecr_images(ctx: click.Context, verbose: bool, target_env: str | None, repo_name: str | None):
     """List all images in a repo"""
-    config: Config = cli_load(target_env)
+    config: Config = ctx.obj['load_config'](target_env)
     b3_sess = auth.b3_sess(config.aws_region)
 
     repos = ecr.Repos(b3_sess)
@@ -130,7 +135,7 @@ def ecr_tags(
     repo_name: str | None,
 ):
     """List ecr tags"""
-    config: Config = cli_load(target_env)
+    config: Config = ctx.obj['load_config'](target_env)
     b3_sess = auth.b3_sess(config.aws_region)
 
     repos = ecr.Repos(b3_sess)
@@ -145,9 +150,10 @@ def ecr_tags(
 
 @aws.command()
 @click.option('--verbose', is_flag=True)
-def api_gateways(verbose: bool):
+@click.pass_context
+def api_gateways(ctx: click.Context, verbose: bool):
     """List api gateways in active account"""
-    config: Config = cli_load(None)
+    config: Config = ctx.obj['load_config'](None)
     b3_sess = auth.b3_sess(config.aws_region)
 
     apis = api_gateway.APIs(b3_sess)

@@ -38,12 +38,20 @@ class TestConfig:
         assert c.function_arn == 'arn:aws:lambda:south:1234:function:starfleet-tng-func-qa'
 
     @mock_patch_obj(config.utils, 'host_user')
-    def test_mu_toml(self, m_host_user):
+    def test_inferred_mu_toml(self, m_host_user):
         m_host_user.return_value = 'picard.science-station'
 
         c = load('pkg2')
         assert c.resource_ident == 'starfleet-tng-lambda-func-qa'
         assert c.domain_name == 'pkg2.example.com'
+
+    @mock_patch_obj(config.utils, 'host_user')
+    def test_specified_mu_toml(self, m_host_user):
+        m_host_user.return_value = 'picard.science-station'
+
+        c = config.load(tests_dpath / 'pkg2', 'qa', tests_dpath / 'pkg2' / 'mu2.toml')
+        assert c.resource_ident == 'starfleet-tng-lambda-func-qa'
+        assert c.domain_name == 'pkg2.domain2.com'
 
     def test_sqs_configs(self):
         conf = load('pkg-sqs')
