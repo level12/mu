@@ -10,7 +10,7 @@ def describe_subnets(
     resp = ec2.describe_subnets()
     retval = {}
     for subnet in resp['Subnets']:
-        names = [pair['Value'] for pair in subnet['Tags'] if pair['Key'] == name_tag_key]
+        names = [pair['Value'] for pair in subnet.get('Tags', []) if pair['Key'] == name_tag_key]
         name = names[0] if names else ''
         retval_key = name if name else subnet['SubnetId']
         if not filter_prefix or name.startswith(filter_prefix):
