@@ -116,23 +116,39 @@ class GatewayStubs:
     def delete_api(self, **kwargs):
         return self.apis.delete('delete_api', kwargs)
 
-    def fake_domain_name(self, kwargs):
+    @staticmethod
+    def merge_domain_name(rec, kwargs):
         kwargs = kwargs.copy()
         dnc = 'DomainNameConfigurations'
-        kw_dn_configs = kwargs.pop(dnc)
+        kw_dn_configs = kwargs.pop(dnc, [])
+        mtls = kwargs.pop('MutualTlsAuthentication', None)
 
-        rec = utils.deep_merge(fake.domain_name(), kwargs)
+        rec = utils.deep_merge(rec, kwargs)
+        rec[dnc] = [dict(dnc_rec) for dnc_rec in rec[dnc]]
 
         for i, dnc_rec in enumerate(kw_dn_configs):
             rec[dnc][i] = utils.deep_merge(rec[dnc][i], dnc_rec)
 
+        if mtls is not None and not mtls.get('TruststoreUri'):
+            rec.pop('MutualTlsAuthentication', None)
+        elif mtls is not None:
+            rec['MutualTlsAuthentication'] = {'TruststoreWarnings': []} | mtls
+
         return rec
+
+    def fake_domain_name(self, kwargs):
+        return self.merge_domain_name(fake.domain_name(), kwargs)
 
     def get_domain_names(self, **kwargs):
         return self.domain_names.list('get_domain_names', kwargs)
 
     def create_domain_name(self, **kwargs):
         return self.domain_names.create('create_domain_name', kwargs)
+
+    def update_domain_name(self, **kwargs):
+        self.domain_names.calls.append(('update_domain_name', kwargs))
+        name = kwargs['DomainName']
+        self.domain_names.recs[name] = self.merge_domain_name(self.domain_names.recs[name], kwargs)
 
     def delete_domain_name(self, **kwargs):
         return self.domain_names.delete('delete_domain_name', kwargs)
@@ -197,8 +213,11 @@ class GatewayStubs:
             ) as stub,
             mock_patch_obj(gw.func_perms, 'ensure') as m_ensure,
             mock_patch_obj(gw.func_perms, 'client_list'),
+            mock_patch_obj(gw.s3, 'head_object') as m_head_object,
         ):
+            m_head_object.return_value = {'VersionId': 'fake-truststore-version'}
             self.m_func_perms_ensure = m_ensure
+            self.m_s3_head_object = m_head_object
             yield stub
 
 

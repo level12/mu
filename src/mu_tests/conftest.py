@@ -30,6 +30,6 @@ def logs(caplog):
     return testing.Logs(caplog)
 
 
-@pytest.fixture(scope='session')
+@pytest.fixture
 def config(b3_sess):
     return testing.config(b3_sess)

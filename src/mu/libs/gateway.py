@@ -61,7 +61,14 @@ class ACMCerts(AWSRecsCRUD):
         return super().get(ident.lower(), wait=wait)
 
     def client_list(self):
-        return self.b3c.list_certificates()['CertificateSummaryList']
+        certs = self.b3c.list_certificates()['CertificateSummaryList']
+
+        def preference(cert: dict):
+            status_rank = {'ISSUED': 2, 'PENDING_VALIDATION': 1}.get(cert['Status'], 0)
+            not_after = cert.get('NotAfter')
+            return (status_rank, not_after.timestamp() if not_after else 0)
+
+        return sorted(certs, key=preference)
 
     def client_create(self, domain_name: str):
         self.b3c.request_certificate(
@@ -163,6 +170,10 @@ class DomainName(AWSRec):
     DomainName: str
     GatewayDomainName: str
     Status: str
+    CertificateArn: str | None
+    TruststoreUri: str | None
+    TruststoreVersion: str | None
+    TruststoreWarnings: list[str]
 
     @classmethod
     def from_aws(cls, data: dict) -> Self:
@@ -174,6 +185,12 @@ class DomainName(AWSRec):
             )
         api_map['GatewayDomainName'] = dn_configs[0]['ApiGatewayDomainName']
         api_map['Status'] = dn_configs[0]['DomainNameStatus']
+        api_map['CertificateArn'] = dn_configs[0].get('CertificateArn')
+
+        mtls = data.get('MutualTlsAuthentication') or {}
+        api_map['TruststoreUri'] = mtls.get('TruststoreUri')
+        api_map['TruststoreVersion'] = mtls.get('TruststoreVersion')
+        api_map['TruststoreWarnings'] = mtls.get('TruststoreWarnings', [])
 
         return cls(**api_map)
 
@@ -185,20 +202,57 @@ class DomainName(AWSRec):
 class DomainNames(AWSRecsCRUD):
     client_name: str = 'apigatewayv2'
     rec_cls: type[DomainName] = DomainName
+    ensure_updates = True
 
     def client_list(self):
         return self.b3c.get_domain_names()['Items']
 
-    def client_create(self, name: str, *, cert_arn: str):
-        self.b3c.create_domain_name(
-            DomainName=name,
-            DomainNameConfigurations=[
+    @staticmethod
+    def domain_kwargs(
+        name: str,
+        cert_arn: str,
+        truststore_uri: str,
+        truststore_version: str | None,
+    ) -> dict:
+        mtls = {'TruststoreUri': truststore_uri}
+        if truststore_version:
+            mtls['TruststoreVersion'] = truststore_version
+
+        return {
+            'DomainName': name,
+            'DomainNameConfigurations': [
                 {
                     'CertificateArn': cert_arn,
                     'EndpointType': 'REGIONAL',
                     'SecurityPolicy': 'TLS_1_2',
                 },
             ],
+            'MutualTlsAuthentication': mtls,
+        }
+
+    def client_create(
+        self,
+        name: str,
+        *,
+        cert_arn: str,
+        truststore_uri: str,
+        truststore_version: str,
+    ):
+        kwargs = self.domain_kwargs(name, cert_arn, truststore_uri, truststore_version)
+        if not truststore_uri:
+            del kwargs['MutualTlsAuthentication']
+        self.b3c.create_domain_name(**kwargs)
+
+    def client_update(
+        self,
+        rec: DomainName,
+        *,
+        cert_arn: str,
+        truststore_uri: str = '',
+        truststore_version: str,
+    ):
+        self.b3c.update_domain_name(
+            **self.domain_kwargs(rec.DomainName, cert_arn, truststore_uri, truststore_version),
         )
 
     def client_delete(self, domain_name: DomainName):
@@ -260,6 +314,26 @@ class Gateway:
         self.gw_domains = DomainNames(self.b3_sess)
         self.api_mappings = APIMappings(self.b3_sess)
         self.func_perms = lamb.FunctionPermissions(self.b3_sess)
+        self.s3 = self.b3_sess.client('s3')
+
+    def truststore_version(self) -> str | None:
+        """
+        Latest S3 version of the truststore.  It's passed explicitly because AWS doesn't record or
+        report a version when none is given, so the deployed truststore couldn't be confirmed.
+        """
+        uri = self.config.mtls_truststore_uri
+        if not uri:
+            return None
+
+        bucket, _, key = uri.removeprefix('s3://').partition('/')
+        version = self.s3.head_object(Bucket=bucket, Key=key).get('VersionId')
+        # Objects uploaded before versioning was enabled have the version 'null'.
+        if not version or version == 'null':
+            raise RuntimeError(
+                f'Truststore {uri} has no S3 version.  Enable versioning on bucket {bucket} and '
+                'upload the truststore again.',
+            )
+        return version
 
     def cert_describe(self) -> dict:
         cert = self.acm_certs.get(self.domain_name)
@@ -312,10 +386,21 @@ class Gateway:
         gw_domain: DomainName = self.gw_domains.ensure(
             self.domain_name,
             cert_arn=cert.arn,
+            truststore_uri=self.config.mtls_truststore_uri,
+            truststore_version=self.truststore_version(),
         )
         log.info(f'  - Host: {gw_domain.GatewayDomainName}')
         log.info(f'  - Alias: {self.domain_name}')
         log.info(f'  - Status: {gw_domain.Status}')
+        if gw_domain.TruststoreUri:
+            log.info(f'  - Truststore: {gw_domain.TruststoreUri} ({gw_domain.TruststoreVersion})')
+        for warning in gw_domain.TruststoreWarnings:
+            log.warning(f'  - Truststore warning: {warning}')
+        if gw_domain.TruststoreUri and not gw_api.DisableExecuteApiEndpoint:
+            log.warning(
+                '  - mTLS is enabled but the default execute-api endpoint is not disabled, so '
+                'clients can bypass mTLS. Set disable-execute-api-endpoint = true.',
+            )
 
         self.api_mappings.ensure(gw_api.ApiId, self.domain_name)
 

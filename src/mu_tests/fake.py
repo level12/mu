@@ -8,6 +8,7 @@ def cert_summary(
     arn='arn:mu-test-cert-arn',
     domain='app.example.com',
     status='PENDING_VALIDATION',
+    not_after=None,
 ):
     return {
         'CertificateArn': arn,
@@ -23,6 +24,7 @@ def cert_summary(
         'RenewalEligibility': 'INELIGIBLE',
         # This time format matches what the boto3 API returns
         'CreatedAt': dt.datetime.now(tzlocal()),
+        **({'NotAfter': not_after} if not_after else {}),
     }
 
 

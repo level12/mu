@@ -1,5 +1,4 @@
 project-org = 'Starfleet'
 domain-name = 'mtls.example.com'
 mtls-truststore-uri = 's3://starfleet-certs/truststore.pem'
-mtls-truststore-version = 'abc123'
 disable-execute-api-endpoint = true

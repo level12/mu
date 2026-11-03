@@ -63,8 +63,7 @@ class Config:
     vpc_subnet_name_tag_key: str = 'Name'
     vpc_security_group_names: list[str] = field(default_factory=list)
     _func_arn_override: str | None = None
-    mtls_truststore_uri: str | None = None
-    mtls_truststore_version: str | None = None
+    mtls_truststore_uri: str = ''
     disable_execute_api_endpoint: bool = False
 
     def apply_sess(self, sess: boto3.Session, testing=False):
@@ -230,8 +229,7 @@ def load(start_at: Path, env: str, mu_fpath: Path | None = None) -> Config:
             'vpc-security-group-names',
             default=(),
         ),
-        mtls_truststore_uri=deep_get(config, key_prefix, 'mtls-truststore-uri'),
-        mtls_truststore_version=deep_get(config, key_prefix, 'mtls-truststore-version'),
+        mtls_truststore_uri=deep_get(config, key_prefix, 'mtls-truststore-uri', default=''),
         disable_execute_api_endpoint=deep_get(
             config,
             key_prefix,

@@ -29,8 +29,7 @@ class TestConfig:
             'MU_ENV': 'qa',
             'MU_RESOURCE_IDENT': 'starfleet-tng-lambda-func-qa',
         }
-        assert c.mtls_truststore_uri is None
-        assert c.mtls_truststore_version is None
+        assert c.mtls_truststore_uri == ''
         assert c.disable_execute_api_endpoint is False
 
         c.aws_acct_id = '1234'
@@ -77,7 +76,6 @@ class TestConfig:
         conf = load('pkg-mtls')
         assert conf.domain_name == 'mtls.example.com'
         assert conf.mtls_truststore_uri == 's3://starfleet-certs/truststore.pem'
-        assert conf.mtls_truststore_version == 'abc123'
         assert conf.disable_execute_api_endpoint is True
 
         printed = conf.for_print(resolve_env=False)
