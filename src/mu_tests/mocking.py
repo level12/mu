@@ -75,6 +75,11 @@ class AWSRecsStub:
         rec = self.fake_factory(pos_kwargs or kwargs)
         self.recs[rec[self.delete_by_field]] = rec
 
+    def update(self, func_name, kwargs):
+        self.calls.append((func_name, kwargs))
+        rec_id = kwargs[self.delete_by_field]
+        self.recs[rec_id] = utils.deep_merge(self.recs[rec_id], kwargs)
+
     def delete(self, func_name, kwargs):
         self.calls.append((func_name, kwargs))
         rec_id = kwargs[self.delete_by_field]
@@ -104,6 +109,9 @@ class GatewayStubs:
 
     def create_api(self, **kwargs):
         return self.apis.create('create_api', kwargs)
+
+    def update_api(self, **kwargs):
+        return self.apis.update('update_api', kwargs)
 
     def delete_api(self, **kwargs):
         return self.apis.delete('delete_api', kwargs)

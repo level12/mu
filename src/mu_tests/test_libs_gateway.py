@@ -57,12 +57,15 @@ class TestIntegration:
         logs.clear()
 
         # Ensure created
-        apis.ensure(config.resource_ident, lambda_arn=tmp_la.arn)
+        apis.ensure(config.resource_ident, lambda_arn=tmp_la.arn, disable_execute_api=False)
         assert apis.get(config.resource_ident).ApiEndpoint
 
-        # No error when exists
-        apis.ensure(config.resource_ident, lambda_arn=tmp_la.arn)
-        assert apis.get(config.resource_ident)
+        # Updated in place when exists
+        api_id = apis.get(config.resource_ident).ApiId
+        apis.ensure(config.resource_ident, lambda_arn=tmp_la.arn, disable_execute_api=True)
+        gw_api = apis.get(config.resource_ident)
+        assert gw_api.ApiId == api_id
+        assert gw_api.DisableExecuteApiEndpoint is True
 
         # Delete
         apis.delete(config.resource_ident)
@@ -73,7 +76,7 @@ class TestIntegration:
 
         assert logs.messages == [
             'GatewayAPIs ensure: record created',
-            'GatewayAPIs ensure: record existed',
+            'GatewayAPIs ensure: record existed, updated',
             'GatewayAPIs delete: record deleted',
         ]
 
@@ -118,7 +121,11 @@ class TestIntegration:
         cert = testing.persistent_cert(b3_sess)
         la = testing.tmp_lambda(b3_sess, config)
 
-        gw_api: gateway.APIMapping = apis.ensure(config.resource_ident, lambda_arn=la.arn)
+        gw_api: gateway.APIMapping = apis.ensure(
+            config.resource_ident,
+            lambda_arn=la.arn,
+            disable_execute_api=False,
+        )
         d_names.ensure(domain_name, cert_arn=cert.arn)
 
         # Ensure not present from previous test
@@ -219,10 +226,16 @@ class TestCRUD:
         apis = gateway.GatewayAPIs(b3s_fake)
 
         with mocking.GatewayStubs().mock(apis) as stub:
-            apis.ensure('phaser-api', lambda_arn='arn:lambda:engage')
+            apis.ensure('phaser-api', lambda_arn='arn:lambda:engage', disable_execute_api=False)
             api_id = apis.get('phaser-api').ApiId
 
-            apis.ensure('phaser-api', lambda_arn='arn:lambda:engage')
+            gw_api = apis.ensure(
+                'phaser-api',
+                lambda_arn='arn:lambda:engage',
+                disable_execute_api=True,
+            )
+            assert gw_api.ApiId == api_id
+            assert gw_api.DisableExecuteApiEndpoint is True
 
             apis.delete('phaser-api')
             assert apis.get('phaser-api') is None
@@ -235,15 +248,19 @@ class TestCRUD:
                     Name='phaser-api',
                     ProtocolType='HTTP',
                     Target='arn:lambda:engage',
+                    DisableExecuteApiEndpoint=False,
                 )
                 == 1
             )
-
+            assert (
+                stub.apis.call_count('update_api', ApiId=api_id, DisableExecuteApiEndpoint=True)
+                == 1
+            )
             assert stub.apis.call_count('delete_api', ApiId=api_id)
 
         assert logs.messages == [
             'GatewayAPIs ensure: record created',
-            'GatewayAPIs ensure: record existed',
+            'GatewayAPIs ensure: record existed, updated',
             'GatewayAPIs delete: record deleted',
         ]
 

@@ -122,6 +122,7 @@ class GatewayAPI(AWSRec):
     ApiId: str
     Name: str
     ApiEndpoint: str
+    DisableExecuteApiEndpoint: bool = False
 
     @property
     def ident(self):
@@ -131,15 +132,24 @@ class GatewayAPI(AWSRec):
 class GatewayAPIs(AWSRecsCRUD):
     client_name: str = 'apigatewayv2'
     rec_cls: type[GatewayAPI] = GatewayAPI
+    ensure_updates = True
 
     def client_list(self):
         return self.b3c.get_apis()['Items']
 
-    def client_create(self, name: str, *, lambda_arn):
+    def client_create(self, name: str, *, lambda_arn, disable_execute_api):
         self.b3c.create_api(
             Name=name,
             ProtocolType='HTTP',
             Target=lambda_arn,
+            DisableExecuteApiEndpoint=disable_execute_api,
+        )
+
+    def client_update(self, rec: GatewayAPI, *, lambda_arn, disable_execute_api):
+        # lambda_arn is derived from the same identity as the API name, so it can't change.
+        self.b3c.update_api(
+            ApiId=rec.ApiId,
+            DisableExecuteApiEndpoint=disable_execute_api,
         )
 
     def client_delete(self, rec: GatewayAPI):
@@ -286,6 +296,7 @@ class Gateway:
         gw_api: GatewayAPI = self.gw_apis.ensure(
             self.config.resource_ident,
             lambda_arn=self.config.function_arn,
+            disable_execute_api=self.config.disable_execute_api_endpoint,
         )
         log.info(f'  - Api Endpoint: {gw_api.ApiEndpoint}')
 
