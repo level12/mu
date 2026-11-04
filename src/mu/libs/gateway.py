@@ -144,7 +144,7 @@ class GatewayAPIs(AWSRecsCRUD):
     def client_list(self):
         return self.b3c.get_apis()['Items']
 
-    def client_create(self, name: str, *, lambda_arn, disable_execute_api):
+    def client_create(self, name: str, *, lambda_arn, disable_execute_api: bool = False):
         self.b3c.create_api(
             Name=name,
             ProtocolType='HTTP',
@@ -152,7 +152,22 @@ class GatewayAPIs(AWSRecsCRUD):
             DisableExecuteApiEndpoint=disable_execute_api,
         )
 
-    def client_update(self, rec: GatewayAPI, *, lambda_arn, disable_execute_api):
+    def needs_update(
+        self,
+        rec: GatewayAPI,
+        *,
+        lambda_arn=None,
+        disable_execute_api: bool = False,
+    ) -> bool:
+        return rec.DisableExecuteApiEndpoint != disable_execute_api
+
+    def client_update(
+        self,
+        rec: GatewayAPI,
+        *,
+        lambda_arn=None,
+        disable_execute_api: bool = False,
+    ):
         # lambda_arn is derived from the same identity as the API name, so it can't change.
         self.b3c.update_api(
             ApiId=rec.ApiId,
@@ -211,14 +226,10 @@ class DomainNames(AWSRecsCRUD):
     def domain_kwargs(
         name: str,
         cert_arn: str,
-        truststore_uri: str,
-        truststore_version: str | None,
+        truststore_uri: str = '',
+        truststore_version: str | None = None,
     ) -> dict:
-        mtls = {'TruststoreUri': truststore_uri}
-        if truststore_version:
-            mtls['TruststoreVersion'] = truststore_version
-
-        return {
+        kwargs = {
             'DomainName': name,
             'DomainNameConfigurations': [
                 {
@@ -227,21 +238,41 @@ class DomainNames(AWSRecsCRUD):
                     'SecurityPolicy': 'TLS_1_2',
                 },
             ],
-            'MutualTlsAuthentication': mtls,
         }
+
+        if truststore_uri:
+            mtls = {'TruststoreUri': truststore_uri}
+            if truststore_version:
+                mtls['TruststoreVersion'] = truststore_version
+            kwargs['MutualTlsAuthentication'] = mtls
+
+        return kwargs
 
     def client_create(
         self,
         name: str,
         *,
         cert_arn: str,
-        truststore_uri: str,
-        truststore_version: str,
+        truststore_uri: str = '',
+        truststore_version: str | None = None,
     ):
-        kwargs = self.domain_kwargs(name, cert_arn, truststore_uri, truststore_version)
-        if not truststore_uri:
-            del kwargs['MutualTlsAuthentication']
-        self.b3c.create_domain_name(**kwargs)
+        self.b3c.create_domain_name(
+            **self.domain_kwargs(name, cert_arn, truststore_uri, truststore_version),
+        )
+
+    def needs_update(
+        self,
+        rec: DomainName,
+        *,
+        cert_arn: str,
+        truststore_uri: str = '',
+        truststore_version: str | None = None,
+    ) -> bool:
+        if rec.CertificateArn != cert_arn:
+            return True
+        if (rec.TruststoreUri or '') != truststore_uri:
+            return True
+        return bool(truststore_uri) and rec.TruststoreVersion != truststore_version
 
     def client_update(
         self,
@@ -249,11 +280,14 @@ class DomainNames(AWSRecsCRUD):
         *,
         cert_arn: str,
         truststore_uri: str = '',
-        truststore_version: str,
+        truststore_version: str | None = None,
     ):
-        self.b3c.update_domain_name(
-            **self.domain_kwargs(rec.DomainName, cert_arn, truststore_uri, truststore_version),
-        )
+        kwargs = self.domain_kwargs(rec.DomainName, cert_arn, truststore_uri, truststore_version)
+        if not truststore_uri and rec.TruststoreUri:
+            # An empty truststore URI is how AWS disables mTLS on an existing domain.  Only send it
+            # when mTLS is being removed, so domains that never had mTLS don't get an empty URI.
+            kwargs['MutualTlsAuthentication'] = {'TruststoreUri': ''}
+        self.b3c.update_domain_name(**kwargs)
 
     def client_delete(self, domain_name: DomainName):
         self.b3c.delete_domain_name(DomainName=domain_name.DomainName)
@@ -353,6 +387,14 @@ class Gateway:
             self.acm_certs.delete(self.domain_name)
 
     def provision(self):
+        if self.config.mtls_truststore_uri and not self.config.disable_execute_api_endpoint:
+            raise RuntimeError(
+                'mTLS is enabled but the default execute-api endpoint is not disabled, so clients '
+                'could bypass mTLS. Set disable-execute-api-endpoint = true.',
+            )
+
+        truststore_version = self.truststore_version()
+
         cert: ACMCert = self.acm_certs.ensure(self.domain_name)
         self.acm_certs.log_dns_validation(self.domain_name)
 
@@ -387,7 +429,7 @@ class Gateway:
             self.domain_name,
             cert_arn=cert.arn,
             truststore_uri=self.config.mtls_truststore_uri,
-            truststore_version=self.truststore_version(),
+            truststore_version=truststore_version,
         )
         log.info(f'  - Host: {gw_domain.GatewayDomainName}')
         log.info(f'  - Alias: {self.domain_name}')
@@ -396,11 +438,6 @@ class Gateway:
             log.info(f'  - Truststore: {gw_domain.TruststoreUri} ({gw_domain.TruststoreVersion})')
         for warning in gw_domain.TruststoreWarnings:
             log.warning(f'  - Truststore warning: {warning}')
-        if gw_domain.TruststoreUri and not gw_api.DisableExecuteApiEndpoint:
-            log.warning(
-                '  - mTLS is enabled but the default execute-api endpoint is not disabled, so '
-                'clients can bypass mTLS. Set disable-execute-api-endpoint = true.',
-            )
 
         self.api_mappings.ensure(gw_api.ApiId, self.domain_name)
 

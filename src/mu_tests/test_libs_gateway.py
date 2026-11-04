@@ -99,7 +99,7 @@ class TestIntegration:
         assert rec.GatewayDomainName
         assert not rec.TruststoreUri
 
-        # Updated in place when exists
+        # Not updated when nothing changed
         d_names.ensure(domain_name, cert_arn=cert.arn)
         rec = d_names.get(domain_name)
         assert rec.CertificateArn == cert.arn
@@ -114,7 +114,7 @@ class TestIntegration:
 
         assert logs.messages == [
             'DomainNames ensure: record created',
-            'DomainNames ensure: record existed, updated',
+            'DomainNames ensure: record existed',
             'DomainNames delete: record deleted',
         ]
 
@@ -243,6 +243,9 @@ class TestCRUD:
             assert gw_api.ApiId == api_id
             assert gw_api.DisableExecuteApiEndpoint is True
 
+            # Unchanged, so no update
+            apis.ensure('phaser-api', lambda_arn='arn:lambda:engage', disable_execute_api=True)
+
             apis.delete('phaser-api')
             assert apis.get('phaser-api') is None
 
@@ -267,6 +270,7 @@ class TestCRUD:
         assert logs.messages == [
             'GatewayAPIs ensure: record created',
             'GatewayAPIs ensure: record existed, updated',
+            'GatewayAPIs ensure: record existed',
             'GatewayAPIs delete: record deleted',
         ]
 
@@ -292,6 +296,14 @@ class TestCRUD:
             )
             assert rec.TruststoreUri == 's3://certs/truststore.pem'
             assert rec.TruststoreVersion == 'v2'
+
+            # Unchanged, so no update
+            d_names.ensure(
+                domain_name,
+                cert_arn=cert_arn,
+                truststore_uri='s3://certs/truststore.pem',
+                truststore_version='v2',
+            )
 
             rec = d_names.ensure(
                 domain_name,
@@ -358,6 +370,7 @@ class TestCRUD:
         assert logs.messages == [
             'DomainNames ensure: record created',
             'DomainNames ensure: record existed, updated',
+            'DomainNames ensure: record existed',
             'DomainNames ensure: record existed, updated',
             'DomainNames delete: record deleted',
         ]
@@ -594,6 +607,7 @@ class TestGateway:
 
     def test_provision_mtls(self, gw: gateway.Gateway, logs: Logs):
         gw.config.mtls_truststore_uri = 's3://certs/truststore.pem'
+        gw.config.disable_execute_api_endpoint = True
 
         with mocking.GatewayStubs().mock_gw(gw) as stub:
             stub.acm_certs.fake(Status='ISSUED')
@@ -608,8 +622,6 @@ class TestGateway:
             '  - Alias: app.example.com',
             '  - Status: AVAILABLE',
             '  - Truststore: s3://certs/truststore.pem (fake-truststore-version)',
-            '  - mTLS is enabled but the default execute-api endpoint is not disabled, so clients '
-            'can bypass mTLS. Set disable-execute-api-endpoint = true.',
             'APIMappings ensure: record created',
         ]
 
@@ -633,14 +645,31 @@ class TestGateway:
             == 1
         )
 
+    def test_provision_mtls_execute_api_enabled(self, gw: gateway.Gateway):
+        gw.config.mtls_truststore_uri = 's3://certs/truststore.pem'
+
+        with mocking.GatewayStubs().mock_gw(gw) as stub:
+            stub.acm_certs.fake(Status='ISSUED')
+            with pytest.raises(RuntimeError, match='Set disable-execute-api-endpoint = true'):
+                gw.provision()
+
+            assert stub.apis.calls == []
+            assert stub.domain_names.calls == []
+
     def test_provision_truststore_unversioned(self, gw: gateway.Gateway):
         gw.config.mtls_truststore_uri = 's3://certs/truststore.pem'
+        gw.config.disable_execute_api_endpoint = True
 
         with mocking.GatewayStubs().mock_gw(gw) as stub:
             stub.acm_certs.fake(Status='ISSUED')
             stub.m_s3_head_object.return_value = {'VersionId': 'null'}
             with pytest.raises(RuntimeError, match='Enable versioning on bucket certs'):
                 gw.provision()
+
+            # Nothing should be changed when the truststore is invalid.
+            assert stub.apis.calls == []
+            assert stub.domain_names.calls == []
+            stub.m_func_perms_ensure.assert_not_called()
 
     def test_cert_describe(self, gw: gateway.Gateway):
         with mocking.acm_certs(gw.acm_certs, exists=True):
