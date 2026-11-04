@@ -31,6 +31,7 @@ class TestConfig:
         }
         assert c.mtls_truststore_uri == ''
         assert c.disable_execute_api_endpoint is False
+        assert c.disable_function_url is False
 
         c.aws_acct_id = '1234'
         c.aws_region = 'south'
@@ -77,7 +78,9 @@ class TestConfig:
         assert conf.domain_name == 'mtls.example.com'
         assert conf.mtls_truststore_uri == 's3://starfleet-certs/truststore.pem'
         assert conf.disable_execute_api_endpoint is True
+        assert conf.disable_function_url is True
 
         printed = conf.for_print(resolve_env=False)
         assert printed['mtls_truststore_uri'] == 's3://starfleet-certs/truststore.pem'
         assert printed['disable_execute_api_endpoint'] is True
+        assert printed['disable_function_url'] is True

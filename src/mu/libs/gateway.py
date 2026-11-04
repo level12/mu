@@ -387,12 +387,6 @@ class Gateway:
             self.acm_certs.delete(self.domain_name)
 
     def provision(self):
-        if self.config.mtls_truststore_uri and not self.config.disable_execute_api_endpoint:
-            raise RuntimeError(
-                'mTLS is enabled but the default execute-api endpoint is not disabled, so clients '
-                'could bypass mTLS. Set disable-execute-api-endpoint = true.',
-            )
-
         truststore_version = self.truststore_version()
 
         cert: ACMCert = self.acm_certs.ensure(self.domain_name)

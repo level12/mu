@@ -608,6 +608,7 @@ class TestGateway:
     def test_provision_mtls(self, gw: gateway.Gateway, logs: Logs):
         gw.config.mtls_truststore_uri = 's3://certs/truststore.pem'
         gw.config.disable_execute_api_endpoint = True
+        gw.config.disable_function_url = True
 
         with mocking.GatewayStubs().mock_gw(gw) as stub:
             stub.acm_certs.fake(Status='ISSUED')
@@ -645,20 +646,10 @@ class TestGateway:
             == 1
         )
 
-    def test_provision_mtls_execute_api_enabled(self, gw: gateway.Gateway):
-        gw.config.mtls_truststore_uri = 's3://certs/truststore.pem'
-
-        with mocking.GatewayStubs().mock_gw(gw) as stub:
-            stub.acm_certs.fake(Status='ISSUED')
-            with pytest.raises(RuntimeError, match='Set disable-execute-api-endpoint = true'):
-                gw.provision()
-
-            assert stub.apis.calls == []
-            assert stub.domain_names.calls == []
-
     def test_provision_truststore_unversioned(self, gw: gateway.Gateway):
         gw.config.mtls_truststore_uri = 's3://certs/truststore.pem'
         gw.config.disable_execute_api_endpoint = True
+        gw.config.disable_function_url = True
 
         with mocking.GatewayStubs().mock_gw(gw) as stub:
             stub.acm_certs.fake(Status='ISSUED')

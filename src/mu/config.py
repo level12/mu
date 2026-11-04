@@ -65,6 +65,7 @@ class Config:
     _func_arn_override: str | None = None
     mtls_truststore_uri: str = ''
     disable_execute_api_endpoint: bool = False
+    disable_function_url: bool = False
 
     def apply_sess(self, sess: boto3.Session, testing=False):
         self.aws_region = sess.region_name
@@ -200,6 +201,8 @@ def load(start_at: Path, env: str, mu_fpath: Path | None = None) -> Config:
     with config_fpath.open('rb') as fo:
         config = tomllib.load(fo)
 
+    mtls_uri = deep_get(config, key_prefix, 'mtls-truststore-uri', default='')
+
     return Config(
         env=env,
         project_org=deep_get(config, key_prefix, 'project-org', required=True),
@@ -229,11 +232,11 @@ def load(start_at: Path, env: str, mu_fpath: Path | None = None) -> Config:
             'vpc-security-group-names',
             default=(),
         ),
-        mtls_truststore_uri=deep_get(config, key_prefix, 'mtls-truststore-uri', default=''),
-        disable_execute_api_endpoint=deep_get(
-            config,
-            key_prefix,
-            'disable-execute-api-endpoint',
-            default=False,
-        ),
+        mtls_truststore_uri=mtls_uri,
+        # mTLS only protects the custom domain, so it forces off every other way to reach the
+        # function.
+        disable_execute_api_endpoint=bool(mtls_uri)
+        or deep_get(config, key_prefix, 'disable-execute-api-endpoint', default=False),
+        disable_function_url=bool(mtls_uri)
+        or deep_get(config, key_prefix, 'disable-function-url', default=False),
     )
