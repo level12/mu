@@ -22,6 +22,7 @@ from . import api_gateway, auth, ec2, ecr, iam, sqs, utils
 
 
 log = logging.getLogger(__name__)
+FUNC_URL_PUBLIC_STMT_ID = 'AllowPublicAccessFunctionUrl'
 
 
 @dataclass
@@ -145,6 +146,9 @@ class Lambda:
         self.provision_role()
         self.provision_repo()
         self.provision_aws_config()
+
+        if self.config.disable_function_url:
+            self.delete_function_url(self.config.lambda_ident)
 
         if self.config.domain_name:
             self.gateway.provision()
@@ -353,6 +357,15 @@ class Lambda:
         except self.not_found_exc:
             log.info('Function URL config not found')
 
+        try:
+            self.lc.remove_permission(
+                FunctionName=func_name,
+                StatementId=FUNC_URL_PUBLIC_STMT_ID,
+            )
+            log.info('Function URL public permission removed')
+        except self.not_found_exc:
+            pass
+
     def function_url(self, func_arn):
         try:
             resp = self.lc.create_function_url_config(
@@ -374,7 +387,7 @@ class Lambda:
             # )
             self.lc.add_permission(
                 FunctionName=func_arn,
-                StatementId='AllowPublicAccessFunctionUrl',
+                StatementId=FUNC_URL_PUBLIC_STMT_ID,
                 Action='lambda:InvokeFunctionUrl',
                 Principal='*',
                 FunctionUrlAuthType='NONE',

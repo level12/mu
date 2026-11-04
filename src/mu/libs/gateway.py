@@ -139,7 +139,6 @@ class GatewayAPI(AWSRec):
 class GatewayAPIs(AWSRecsCRUD):
     client_name: str = 'apigatewayv2'
     rec_cls: type[GatewayAPI] = GatewayAPI
-    ensure_updates = True
 
     def client_list(self):
         return self.b3c.get_apis()['Items']
@@ -217,7 +216,6 @@ class DomainName(AWSRec):
 class DomainNames(AWSRecsCRUD):
     client_name: str = 'apigatewayv2'
     rec_cls: type[DomainName] = DomainName
-    ensure_updates = True
 
     def client_list(self):
         return self.b3c.get_domain_names()['Items']
@@ -408,7 +406,10 @@ class Gateway:
             lambda_arn=self.config.function_arn,
             disable_execute_api=self.config.disable_execute_api_endpoint,
         )
-        log.info(f'  - Api Endpoint: {gw_api.ApiEndpoint}')
+        if gw_api.DisableExecuteApiEndpoint:
+            log.info(f'  - Api Endpoint: {gw_api.ApiEndpoint} (disabled)')
+        else:
+            log.info(f'  - Api Endpoint: {gw_api.ApiEndpoint}')
 
         # TODO: we could be smarter about only replacing if there is a difference
         self.func_perms.delete(self.config.api_invoke_stmt_id, self.config.function_arn)

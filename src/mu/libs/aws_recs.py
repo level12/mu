@@ -31,7 +31,6 @@ class AWSRecsCRUD:
     client_name: str
     rec_cls: type[AWSRec]
     ensure_get_wait: bool = False
-    ensure_updates: bool = False
     # Gateway has stupidly low limits:
     # https://docs.aws.amazon.com/apigateway/latest/developerguide/limits.html#api-gateway-control-service-limits-table
     b3_config = botocore.config.Config(retries={'total_max_attempts': 30, 'mode': 'adaptive'})
@@ -69,7 +68,7 @@ class AWSRecsCRUD:
         raise NotImplementedError
 
     def needs_update(self, rec: AWSRec, **kwargs) -> bool:
-        return True
+        return False
 
     def list(self, *list_args) -> dict[str, AWSRec]:
         if self._list_recs is None:
@@ -81,7 +80,7 @@ class AWSRecsCRUD:
 
     def ensure(self, ident: str, *list_args, **create_kwargs):
         if rec := self.get(ident, *list_args):
-            if self.ensure_updates and self.needs_update(rec, **create_kwargs):
+            if self.needs_update(rec, **create_kwargs):
                 self.client_update(rec, **create_kwargs)
                 log.info(f'{self.log_prefix} ensure: record existed, updated')
                 self.clear_cache()

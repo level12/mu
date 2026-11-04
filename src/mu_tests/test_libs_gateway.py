@@ -617,7 +617,7 @@ class TestGateway:
         assert logs.messages == [
             'ACMCerts ensure: record existed',
             'GatewayAPIs ensure: record created',
-            '  - Api Endpoint: https://cnstryckkl.execute-api.us-east-2.amazonaws.com',
+            '  - Api Endpoint: https://cnstryckkl.execute-api.us-east-2.amazonaws.com (disabled)',
             'DomainNames ensure: record created',
             '  - Host: d-bbddxy8sl8.execute-api.us-east-2.amazonaws.com',
             '  - Alias: app.example.com',
