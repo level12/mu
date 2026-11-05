@@ -1,3 +1,4 @@
+from moto import mock_aws
 import pytest
 
 from mu.libs import sts, testing
@@ -33,3 +34,9 @@ def logs(caplog):
 @pytest.fixture
 def config(b3_sess):
     return testing.config(b3_sess)
+
+
+@pytest.fixture()
+def moto():
+    with mock_aws():
+        yield

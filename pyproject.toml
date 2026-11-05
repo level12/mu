@@ -55,7 +55,7 @@ tests = [
     'pytest-cov>=6.0',
 
     # App specific:
-    # TODO: fill in app deps here
+    "moto>=5.2.5",
 ]
 # Used by nox
 pre-commit = [
