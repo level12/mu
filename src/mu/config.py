@@ -38,6 +38,48 @@ def deep_get(d: dict, prefix: str, dotted_path: str, default=None, required=Fals
     return d
 
 
+def resolve_env(env_val: str):
+    if env_val is False:
+        return ''
+
+    if env_val is True:
+        return 'true'
+
+    if not isinstance(env_val, str) or not env_val.startswith('op://'):
+        return str(env_val)
+
+    result = utils.sub_run('op', 'read', '-n', env_val, capture_output=True)
+    return result.stdout.decode('utf-8')
+
+
+@dataclass
+class WorkerConfig:
+    """
+    ECS Fargate worker run from the same image as the lambda.
+
+    Bring your own cluster, roles, log group, and security groups.
+    """
+
+    # A list so that the first item can be used as the container's entry point.
+    command: list[str]
+    cluster_name: str
+    execution_role_arn: str
+    task_role_arn: str
+    log_group_name: str
+    security_group_ids: list[str]
+    service_name: str = ''
+    cpu: int = 512
+    memory: int = 1024  # MiB
+    desired_count: int = 1
+    assign_public_ip: bool = False
+    cpu_architecture: str = 'X86_64'
+    _env: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def env(self) -> dict:
+        return {k: resolve_env(v) for k, v in self._env.items()}
+
+
 @dataclass
 class Config:
     env: str
@@ -66,6 +108,7 @@ class Config:
     mtls_truststore_uri: str = ''
     disable_execute_api_endpoint: bool = False
     disable_function_url: bool = False
+    worker: WorkerConfig | None = None
 
     def apply_sess(self, sess: boto3.Session, testing=False):
         self.aws_region = sess.region_name
@@ -128,27 +171,13 @@ class Config:
     def aws_configs(self, kind: str):
         return self.aws_config.get(kind, {})
 
-    def resolve_env(self, env_val: str):
-        if env_val is False:
-            return ''
-
-        if env_val is True:
-            return 'true'
-
-        if not isinstance(env_val, str) or not env_val.startswith('op://'):
-            return str(env_val)
-
-        result = utils.sub_run('op', 'read', '-n', env_val, capture_output=True)
-        return result.stdout.decode('utf-8')
-
     @property
     def deployed_env(self):
         return self.deployed_env_gen(True)
 
     def deployed_env_gen(self, resolve: bool):
         return {
-            name: self.resolve_env(val) if resolve else val
-            for name, val in self._deployed_env.items()
+            name: resolve_env(val) if resolve else val for name, val in self._deployed_env.items()
         } | {
             'MU_ENV': self.env,
             'MU_RESOURCE_IDENT': self.resource_ident,
@@ -169,6 +198,9 @@ class Config:
         config['lambda_ident'] = self.lambda_ident
         config['resource_ident'] = self.resource_ident
         config['role_arn'] = self.role_arn
+        if self.worker:
+            config['worker']['env'] = self.worker.env if resolve_env else self.worker._env
+            del config['worker']['_env']
         return config
 
 
@@ -180,6 +212,8 @@ def load(start_at: Path, env: str, mu_fpath: Path | None = None) -> Config:
     pp_fpath = find_upwards(start_at, 'pyproject.toml')
     if pp_fpath is None:
         raise Exception(f'No pyproject.toml found in {start_at} or parents')
+    with pp_fpath.open('rb') as fo:
+        pp_config = tomllib.load(fo)
 
     if mu_fpath:
         if not mu_fpath.exists():
@@ -195,48 +229,53 @@ def load(start_at: Path, env: str, mu_fpath: Path | None = None) -> Config:
         config_fpath = pp_fpath
         key_prefix = 'tool.mu.'
 
-    with pp_fpath.open('rb') as fo:
-        pp_config = tomllib.load(fo)
-
     with config_fpath.open('rb') as fo:
         config = tomllib.load(fo)
+    get_config = functools.partial(deep_get, config, key_prefix)
 
-    mtls_uri = deep_get(config, key_prefix, 'mtls-truststore-uri', default='')
+    mtls_uri = get_config('mtls-truststore-uri', default='')
+    worker = get_config('worker')
 
     return Config(
         env=env,
-        project_org=deep_get(config, key_prefix, 'project-org', required=True),
+        project_org=get_config('project-org', required=True),
         project_name=deep_get(pp_config, '', 'project.name', required=True),
-        domain_name=deep_get(config, key_prefix, 'domain-name'),
-        _project_ident=deep_get(config, key_prefix, 'project-ident'),
-        lambda_name=deep_get(config, key_prefix, 'lambda-name', 'func'),
-        _image_name=deep_get(config, key_prefix, 'image-name'),
-        action_key=deep_get(config, key_prefix, 'lambda-action-key', default='do-action'),
-        _deployed_env=deep_get(config, key_prefix, 'deployed-env', default={}),
-        event_rules=deep_get(config, key_prefix, 'event-rules', default={}),
-        lambda_memory=deep_get(config, key_prefix, 'lambda-memory', default=2048),
-        lambda_timeout=deep_get(config, key_prefix, 'lambda-timeout', default=900),
-        policy_arns=deep_get(config, key_prefix, 'policy-arns', default=()),
-        aws_config=deep_get(config, key_prefix, 'aws', default={}),
-        compose_service=deep_get(config, key_prefix, 'compose-service', default='app'),
-        vpc_subnet_names=deep_get(config, key_prefix, 'vpc-subnet-names', default=()),
-        vpc_subnet_name_tag_key=deep_get(
-            config,
-            key_prefix,
-            'vpc-subnet-name-tag-key',
-            default='Name',
-        ),
-        vpc_security_group_names=deep_get(
-            config,
-            key_prefix,
-            'vpc-security-group-names',
-            default=(),
-        ),
+        domain_name=get_config('domain-name'),
+        _project_ident=get_config('project-ident'),
+        lambda_name=get_config('lambda-name', 'func'),
+        _image_name=get_config('image-name'),
+        action_key=get_config('lambda-action-key', default='do-action'),
+        _deployed_env=get_config('deployed-env', default={}),
+        event_rules=get_config('event-rules', default={}),
+        lambda_memory=get_config('lambda-memory', default=2048),
+        lambda_timeout=get_config('lambda-timeout', default=900),
+        policy_arns=get_config('policy-arns', default=()),
+        aws_config=get_config('aws', default={}),
+        compose_service=get_config('compose-service', default='app'),
+        vpc_subnet_names=get_config('vpc-subnet-names', default=()),
+        vpc_subnet_name_tag_key=get_config('vpc-subnet-name-tag-key', default='Name'),
+        vpc_security_group_names=get_config('vpc-security-group-names', default=()),
         mtls_truststore_uri=mtls_uri,
         # mTLS only protects the custom domain, so it forces off every other way to reach the
         # function.
         disable_execute_api_endpoint=bool(mtls_uri)
-        or deep_get(config, key_prefix, 'disable-execute-api-endpoint', default=False),
-        disable_function_url=bool(mtls_uri)
-        or deep_get(config, key_prefix, 'disable-function-url', default=False),
+        or get_config('disable-execute-api-endpoint', default=False),
+        disable_function_url=bool(mtls_uri) or get_config('disable-function-url', default=False),
+        worker=WorkerConfig(
+            command=worker['command'],
+            cluster_name=worker['cluster-name'],
+            execution_role_arn=worker['execution-role-arn'],
+            task_role_arn=worker['task-role-arn'],
+            log_group_name=worker['log-group-name'],
+            security_group_ids=worker['security-group-ids'],
+            service_name=worker.get('service-name', ''),
+            cpu=worker.get('cpu', 512),
+            memory=worker.get('memory', 1024),  # MiB
+            desired_count=worker.get('desired-count', 1),
+            assign_public_ip=worker.get('assign-public-ip', False),
+            cpu_architecture=worker.get('cpu-architecture', 'X86_64'),
+            _env=worker.get('env', {}),
+        )
+        if worker
+        else None,
     )

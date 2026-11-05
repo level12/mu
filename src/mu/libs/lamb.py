@@ -18,7 +18,7 @@ from mu.config import Config
 from mu.libs import gateway
 from mu.libs.aws_recs import AWSRec, AWSRecsCRUD
 
-from . import api_gateway, auth, ec2, ecr, iam, sqs, utils
+from . import api_gateway, auth, ec2, ecr, ecs, iam, sqs, utils
 
 
 log = logging.getLogger(__name__)
@@ -262,6 +262,9 @@ class Lambda:
         if self.config.domain_name:
             self.gateway.delete()
 
+        if self.config.worker:
+            ecs.Worker(self.config, self.b3_sess).delete()
+
         try:
             self.lc.delete_function(
                 FunctionName=lambda_name,
@@ -444,6 +447,9 @@ class Lambda:
         log.info(f'Image URI:{spacing}%s', image_uri)
         log.info(f'Function name:{spacing}%s', func_ident)
         log.info(f'Function URL:{spacing}%s', func_url)
+
+        if self.config.worker:
+            ecs.Worker(self.config, self.b3_sess).deploy(image_uri)
 
     def wait_updated(self, lambda_name: str):
         log.info('Waiting for lambda to be updated...')

@@ -1,86 +1,207 @@
-from dataclasses import dataclass
-import functools
 import logging
 
+from blazeutils.strings import simplify_string as slug
 import boto3
 
-from .utils import B3DataClass
+from mu.config import Config, WorkerConfig
+
+from . import ec2
 
 
 log = logging.getLogger(__name__)
 
 
-@dataclass
-class Cluster(B3DataClass):
-    name: str
-    exists: bool | None = None
+class Worker:
+    """ECS Fargate service that runs the lambda's image with a different command."""
 
-    @functools.cached_property
-    def ecs(self):
-        return self._b3_sess.client('ecs')
-
-    def ensure(self) -> 'Cluster':
-        if self.exists:
-            log.info('ECS cluster existed: %s', self.name)
-            return
-        self.ecs.create_cluster(clusterName=self.name)
-        self.exists = True
-        log.info('ECS cluster created: %s', self.name)
-
-    def delete(self):
-        self.ecs.delete_cluster(cluster=self.name)
-        self.exists = False
-        log.info('ECS cluster deleted: %s', self.name)
-
-
-class ECS:
-    def __init__(self, b3_sess: boto3.Session):
+    def __init__(self, config: Config, b3_sess: boto3.Session):
+        self.config = config
+        self.wc: WorkerConfig = config.worker
         self.b3_sess = b3_sess
         self.ecs = b3_sess.client('ecs')
+        self.service_name: str = self.wc.service_name or slug(
+            f'{config.lambda_ident}-worker',
+        )
+        cluster_name = self.wc.cluster_name.rsplit('/', 1)[-1]
+        self.task_family = f'{cluster_name}-{self.service_name}'
 
-    def clusters(self) -> dict[str, Cluster]:
-        clusters = {}
-        resp = self.ecs.list_clusters()
-        arn: str
-        for arn in resp.get('clusterArns', ()):
-            _, name = arn.rsplit('/', 1)
-            clusters[name] = Cluster(self.b3_sess, name=name, exists=True)
-        return clusters
+    def env_vars(self) -> list[dict]:
+        env = self.config.deployed_env | self.wc.env
+        return [{'name': name, 'value': val} for name, val in sorted(env.items())]
 
-    def delete(self, name_prefix: str):
-        for name, cluster in self.clusters().items():
-            if name.startswith(name_prefix):
-                cluster.delete()
-
-    def cluster(self, name):
-        return self.clusters().get(name) or Cluster(self.b3_sess, name, exists=False)
-
-    def provision(self, resource_ident):
-        self.cluster(resource_ident).ensure()
-
-    def deploy(self, resource_ident, role_arn):
-        self.ecs.register_task_definition(
-            family=resource_ident,
-            executionRoleArn=role_arn,
-            networkMode='awsvpc',
-            containerDefinitions=[
+    def task_def_params(self, image_uri: str) -> dict:
+        entry_point, *command = self.wc.command
+        return {
+            'family': self.task_family,
+            'requiresCompatibilities': ['FARGATE'],
+            'networkMode': 'awsvpc',
+            'cpu': str(self.wc.cpu),
+            'memory': str(self.wc.memory),
+            'executionRoleArn': self.wc.execution_role_arn,
+            'taskRoleArn': self.wc.task_role_arn,
+            'runtimePlatform': {
+                'cpuArchitecture': self.wc.cpu_architecture,
+                'operatingSystemFamily': 'LINUX',
+            },
+            'containerDefinitions': [
                 {
-                    'name': 'my-container',
-                    'image': 'arn:aws:ecr:region:account-id:repository/repository-name:tag',
-                    'portMappings': [
-                        {
-                            'containerPort': 80,
-                            'protocol': 'tcp',
-                        },
-                    ],
+                    'name': 'worker',
+                    'image': image_uri,
                     'essential': True,
-                    'memory': 512,
-                    'cpu': 256,
+                    # Replaces the lambda base image's entry point (the lambda runtime).
+                    'entryPoint': [entry_point],
+                    'command': command,
+                    'environment': self.env_vars(),
+                    'logConfiguration': {
+                        'logDriver': 'awslogs',
+                        'options': {
+                            'awslogs-group': self.wc.log_group_name,
+                            'awslogs-region': self.config.aws_region,
+                            'awslogs-stream-prefix': 'worker',
+                        },
+                    },
                 },
             ],
-            requiresCompatibilities=[
-                'FARGATE',
-            ],
-            cpu='256',
-            memory='512',
+        }
+
+    def network_config(self) -> dict:
+        return {
+            'awsvpcConfiguration': {
+                'subnets': ec2.subnet_ids(
+                    self.b3_sess,
+                    self.config.vpc_subnet_names,
+                    self.config.vpc_subnet_name_tag_key,
+                ),
+                'securityGroups': self.wc.security_group_ids,
+                'assignPublicIp': 'ENABLED' if self.wc.assign_public_ip else 'DISABLED',
+            },
+        }
+
+    def describe_service(self) -> dict | None:
+        resp = self.ecs.describe_services(
+            cluster=self.wc.cluster_name,
+            services=[self.service_name],
         )
+        services = resp.get('services')
+        if not services or services[0]['status'] == 'INACTIVE':
+            return None
+        return services[0]
+
+    def register_task_def(self, image_uri: str) -> str:
+        resp = self.ecs.register_task_definition(**self.task_def_params(image_uri))
+        arn = resp['taskDefinition']['taskDefinitionArn']
+        log.info('ECS task definition registered: %s', arn)
+        return arn
+
+    def ensure_service(self, task_def_arn: str):
+        shared = {
+            'cluster': self.wc.cluster_name,
+            'taskDefinition': task_def_arn,
+            'desiredCount': self.wc.desired_count,
+            'networkConfiguration': self.network_config(),
+            'deploymentConfiguration': {
+                'deploymentCircuitBreaker': {'enable': True, 'rollback': True},
+            },
+        }
+
+        if self.describe_service():
+            self.ecs.update_service(service=self.service_name, **shared)
+            log.info('ECS service updated: %s', self.service_name)
+            return
+
+        self.ecs.create_service(serviceName=self.service_name, launchType='FARGATE', **shared)
+        log.info('ECS service created: %s', self.service_name)
+
+    def wait_deployed(self, task_def_arn: str):
+        log.info('Waiting for ECS worker service to be stable...')
+        waiter = self.ecs.get_waiter('services_stable')
+        waiter.wait(cluster=self.wc.cluster_name, services=[self.service_name])
+
+        # The circuit breaker rolls back a failed deployment and the service then goes stable on
+        # the old task definition, so stable alone doesn't mean our deployment succeeded.
+        service = self.describe_service()
+        primary = next(d for d in service['deployments'] if d['status'] == 'PRIMARY')
+        if primary['taskDefinition'] != task_def_arn:
+            events = '\n'.join(f'  {e["message"]}' for e in service.get('events', [])[:5])
+            raise RuntimeError(
+                f'ECS worker deployment failed and was rolled back: {self.service_name}\n'
+                f'Recent service events:\n{events}',
+            )
+
+    def deploy(self, image_uri: str):
+        log.info('Deploying ECS worker: %s', self.service_name)
+        task_def_arn = self.register_task_def(image_uri)
+        self.ensure_service(task_def_arn)
+        self.wait_deployed(task_def_arn)
+        # Only after the deploy is confirmed: a rollback needs the previous revision.
+        self.remove_task_defs(keep=task_def_arn)
+
+    def task_def_arns(self, status: str) -> list[str]:
+        """Revisions in this worker's family.  familyPrefix is a prefix match, so filter to the
+        exact family to avoid touching e.g. "<task-family>-other"."""
+        paginator = self.ecs.get_paginator('list_task_definitions')
+        return [
+            arn
+            for page in paginator.paginate(familyPrefix=self.task_family, status=status)
+            for arn in page['taskDefinitionArns']
+            if arn.rsplit('/', 1)[-1].rsplit(':', 1)[0] == self.task_family
+        ]
+
+    def remove_task_defs(self, *, keep: str | None = None):
+        """
+        Deregister and delete task definition revisions, other than `keep`.
+
+        Revisions hold the resolved deployed env (including secrets) so they shouldn't be left
+        around.  Deregistering alone leaves them readable as INACTIVE, so they also get deleted.
+        """
+        for arn in self.task_def_arns('ACTIVE'):
+            if arn != keep:
+                self.ecs.deregister_task_definition(taskDefinition=arn)
+
+        inactive = self.task_def_arns('INACTIVE')
+        failed = []
+        # API accepts at most 10 per call.
+        for i in range(0, len(inactive), 10):
+            resp = self.ecs.delete_task_definitions(taskDefinitions=inactive[i : i + 10])
+            failed.extend(resp.get('failures', ()))
+
+        for failure in failed:
+            log.warning(
+                'ECS task definition delete failed: %s - %s',
+                failure.get('arn'),
+                failure.get('reason'),
+            )
+        if removed := len(inactive) - len(failed):
+            log.info('ECS task definitions removed: %s', removed)
+
+    def delete(self):
+        if self.describe_service():
+            self.ecs.delete_service(
+                cluster=self.wc.cluster_name,
+                service=self.service_name,
+                force=True,
+            )
+            log.info('Waiting for ECS service to be deleted...')
+            self.ecs.get_waiter('services_inactive').wait(
+                cluster=self.wc.cluster_name,
+                services=[self.service_name],
+            )
+            log.info('ECS service deleted: %s', self.service_name)
+        else:
+            log.info('ECS service not found: %s', self.service_name)
+
+        # Even without a service, there could be revisions from an earlier partial deploy.
+        self.remove_task_defs()
+
+    def status(self) -> dict | None:
+        if not (service := self.describe_service()):
+            return None
+        primary = next(d for d in service['deployments'] if d['status'] == 'PRIMARY')
+        return {
+            'status': service['status'],
+            'running': service['runningCount'],
+            'desired': service['desiredCount'],
+            'pending': service['pendingCount'],
+            'task_def': primary['taskDefinition'].rsplit('/', 1)[-1],
+            'rollout': primary.get('rolloutState'),
+        }
