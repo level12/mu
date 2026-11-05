@@ -1,7 +1,7 @@
 import io
 
 from mu.config import Config
-from mu.libs import auth, aws_recs, concurrent, gateway, lamb, logs
+from mu.libs import auth, aws_recs, concurrent, ecs, gateway, lamb, logs
 
 
 log = logs.logger()
@@ -17,6 +17,8 @@ class Status:
         self.gw_api: gateway.GatewayAPI | None = None
         self.acm_cert: gateway.ACMCert | None = None
         self.gw_domain_name: gateway.DomainName | None = None
+        self.worker = ecs.Worker(config, self.b3_sess) if config.worker else None
+        self.worker_status: dict | None = None
 
     @classmethod
     def fetch(cls, config, max_threads: int = 4):
@@ -30,6 +32,7 @@ class Status:
             ('fetch_gateway_cert',),
             ('fetch_gateway_api',),
             ('fetch_gateway_domain_name',),
+            ('fetch_worker',),
         )
         with concurrent.thread_futures(method_dispatch, method_names) as results:
             if exc := concurrent.futures_exc(results):
@@ -56,6 +59,10 @@ class Status:
         if not self.config.domain_name:
             return
         self.gw_domain_name = gateway.DomainNames(self.b3_sess).get(self.config.domain_name)
+
+    def fetch_worker(self):
+        if self.worker:
+            self.worker_status = self.worker.status()
 
     def results(self):
         indent = '   '
@@ -112,6 +119,20 @@ class Status:
                 f'Domain:\n{indent}Name: None\n',
             )
 
-        print(self.gw_api)
+        if self.worker:
+            results.write(
+                f'Worker:\n{indent}Cluster: {self.config.worker.cluster_name}\n'
+                f'{indent}Service: {self.worker.service_name}\n',
+            )
+            if self.worker_status:
+                w = self.worker_status
+                results.write(
+                    f'{indent}Status: {w["status"]} ({w["rollout"]})\n'
+                    f'{indent}Tasks: {w["running"]} running / {w["desired"]} desired'
+                    f' / {w["pending"]} pending\n'
+                    f'{indent}Task Def: {w["task_def"]}\n',
+                )
+            else:
+                results.write(f'{indent}Created: False\n')
 
         return results.getvalue()

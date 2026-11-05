@@ -1,0 +1,18 @@
+project-org = 'Starfleet'
+vpc-subnet-names = ['private-a', 'private-b']
+vpc-security-group-names = ['starfleet-lambda']
+
+[deployed-env]
+GEORDI = 'La Forge'
+
+[worker]
+command = ['flask', 'worker', '--concurrency', '5']
+cluster-name = 'starfleet-workers'
+execution-role-arn = 'arn:aws:iam::1234:role/worker-execution'
+task-role-arn = 'arn:aws:iam::1234:role/worker-task'
+log-group-name = '/ecs/starfleet-workers'
+security-group-names = ['starfleet-worker']
+memory = 2048
+
+[worker.env]
+WORKER_POOL_SIZE = 5

@@ -84,3 +84,17 @@ class TestConfig:
         assert printed['mtls_truststore_uri'] == 's3://starfleet-certs/truststore.pem'
         assert printed['disable_execute_api_endpoint'] is True
         assert printed['disable_function_url'] is True
+
+    def test_worker_config(self):
+        conf = load('pkg-worker')
+        wc = conf.worker
+        assert wc
+        assert wc.command == ['flask', 'worker', '--concurrency', '5']
+        assert wc.cluster_name == 'starfleet-workers'
+        assert wc.security_group_names == ['starfleet-worker']
+        assert wc.service_name == ''
+        assert wc.cpu == 512
+        assert wc.memory == 2048
+        assert wc.desired_count == 1
+        assert wc.assign_public_ip is False
+        assert wc.env == {'WORKER_POOL_SIZE': '5'}

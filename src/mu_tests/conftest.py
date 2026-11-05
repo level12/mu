@@ -1,3 +1,8 @@
+import os
+from unittest import mock
+
+import boto3
+from moto import mock_aws
 import pytest
 
 from mu.libs import sts, testing
@@ -33,3 +38,21 @@ def logs(caplog):
 @pytest.fixture
 def config(b3_sess):
     return testing.config(b3_sess)
+
+
+@pytest.fixture()
+def moto():
+    with mock_aws():
+        yield
+
+
+@pytest.fixture
+def moto_sess(moto):
+    with mock.patch.dict(os.environ):
+        os.environ.pop('AWS_PROFILE', None)
+        os.environ.pop('AWS_DEFAULT_PROFILE', None)
+        yield boto3.Session(
+            aws_access_key_id='testing',
+            aws_secret_access_key='testing',
+            region_name='us-east-1',
+        )

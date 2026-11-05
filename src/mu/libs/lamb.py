@@ -18,7 +18,7 @@ from mu.config import Config
 from mu.libs import gateway
 from mu.libs.aws_recs import AWSRec, AWSRecsCRUD
 
-from . import api_gateway, auth, ec2, ecr, iam, sqs, utils
+from . import api_gateway, auth, ec2, ecr, ecs, iam, sqs, utils
 
 
 log = logging.getLogger(__name__)
@@ -163,23 +163,17 @@ class Lambda:
         vpc_config = {'SubnetIds': [], 'SecurityGroupIds': []}
         # TODO: should also be able to add by subnet ids in config, not just names.
         if subnet_names := self.config.vpc_subnet_names:
-            vpc_config['SubnetIds'] = subnet_ids = [
-                subnet['SubnetId']
-                for name, subnet in ec2.describe_subnets(
-                    self.b3_sess,
-                    name_tag_key=self.config.vpc_subnet_name_tag_key,
-                ).items()
-                if name in subnet_names
-            ]
+            vpc_config['SubnetIds'] = subnet_ids = ec2.subnet_ids(
+                self.b3_sess,
+                subnet_names,
+                self.config.vpc_subnet_name_tag_key,
+            )
             log.info('Assigning subnets: %s - %s', ','.join(subnet_names), subnet_ids)
         if sec_group_names := self.config.vpc_security_group_names:
-            vpc_config['SecurityGroupIds'] = group_ids = [
-                group['GroupId']
-                for group in ec2.describe_security_groups(
-                    self.b3_sess,
-                    sec_group_names,
-                ).values()
-            ]
+            vpc_config['SecurityGroupIds'] = group_ids = ec2.security_group_ids(
+                self.b3_sess,
+                sec_group_names,
+            )
             log.info('Assigning security groups: %s - %s', ','.join(sec_group_names), group_ids)
 
         env_vars = self.config.deployed_env
@@ -261,6 +255,9 @@ class Lambda:
 
         if self.config.domain_name:
             self.gateway.delete()
+
+        if self.config.worker:
+            ecs.Worker(self.config, self.b3_sess).delete()
 
         try:
             self.lc.delete_function(
@@ -444,6 +441,9 @@ class Lambda:
         log.info(f'Image URI:{spacing}%s', image_uri)
         log.info(f'Function name:{spacing}%s', func_ident)
         log.info(f'Function URL:{spacing}%s', func_url)
+
+        if self.config.worker:
+            ecs.Worker(self.config, self.b3_sess).deploy(image_uri)
 
     def wait_updated(self, lambda_name: str):
         log.info('Waiting for lambda to be updated...')

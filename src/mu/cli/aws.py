@@ -4,7 +4,7 @@ from pprint import pprint
 import click
 
 from ..config import Config
-from ..libs import api_gateway, auth, ec2, ecr, ecs, gateway
+from ..libs import api_gateway, auth, ec2, ecr, gateway
 from .core import cli
 
 
@@ -47,20 +47,6 @@ def security_groups(ctx: click.Context, target_env, only_names, verbose):
         print(f'{group["GroupId"]} - {name} - {group["Description"]}')
         if verbose:
             pprint(group)
-
-
-@aws.command()
-@click.option('--env', 'target_env')
-@click.option('--verbose', '-v', is_flag=True)
-@click.pass_context
-def ecs_clusters(ctx: click.Context, target_env, verbose):
-    """List App Runner instance configurations"""
-    config: Config = ctx.obj['load_config'](target_env)
-    b3_sess = auth.b3_sess(config.aws_region)
-
-    ecs_ = ecs.ECS(b3_sess)
-    for name in ecs_.clusters():
-        print(name)
 
 
 @cli.command()
