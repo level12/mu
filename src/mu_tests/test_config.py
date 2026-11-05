@@ -91,7 +91,7 @@ class TestConfig:
         assert wc
         assert wc.command == ['flask', 'worker', '--concurrency', '5']
         assert wc.cluster_name == 'starfleet-workers'
-        assert wc.security_group_ids == ['sg-123']
+        assert wc.security_group_names == ['starfleet-worker']
         assert wc.service_name == ''
         assert wc.cpu == 512
         assert wc.memory == 2048

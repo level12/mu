@@ -72,7 +72,10 @@ class Worker:
                     self.config.vpc_subnet_names,
                     self.config.vpc_subnet_name_tag_key,
                 ),
-                'securityGroups': self.wc.security_group_ids,
+                'securityGroups': ec2.security_group_ids(
+                    self.b3_sess,
+                    self.wc.security_group_names,
+                ),
                 'assignPublicIp': 'ENABLED' if self.wc.assign_public_ip else 'DISABLED',
             },
         }

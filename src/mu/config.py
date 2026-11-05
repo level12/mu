@@ -48,7 +48,14 @@ def resolve_env(env_val: str):
     if not isinstance(env_val, str) or not env_val.startswith('op://'):
         return str(env_val)
 
-    result = utils.sub_run('op', 'read', '-n', env_val, capture_output=True)
+    return op_read(env_val)
+
+
+@functools.cache
+def op_read(ref: str) -> str:
+    """Cached so a deploy, which resolves the env for the lambda and the worker, only reads each
+    secret from 1Password once."""
+    result = utils.sub_run('op', 'read', '-n', ref, capture_output=True)
     return result.stdout.decode('utf-8')
 
 
@@ -57,7 +64,7 @@ class WorkerConfig:
     """
     ECS Fargate worker run from the same image as the lambda.
 
-    Bring your own cluster, roles, log group, and security groups.
+    Bring your own cluster, roles, log group, and security groups.  Uses the lambda's subnets.
     """
 
     # A list so that the first item can be used as the container's entry point.
@@ -66,7 +73,7 @@ class WorkerConfig:
     execution_role_arn: str
     task_role_arn: str
     log_group_name: str
-    security_group_ids: list[str]
+    security_group_names: list[str]
     service_name: str = ''
     cpu: int = 512
     memory: int = 1024  # MiB
@@ -267,7 +274,7 @@ def load(start_at: Path, env: str, mu_fpath: Path | None = None) -> Config:
             execution_role_arn=worker['execution-role-arn'],
             task_role_arn=worker['task-role-arn'],
             log_group_name=worker['log-group-name'],
-            security_group_ids=worker['security-group-ids'],
+            security_group_names=worker['security-group-names'],
             service_name=worker.get('service-name', ''),
             cpu=worker.get('cpu', 512),
             memory=worker.get('memory', 1024),  # MiB

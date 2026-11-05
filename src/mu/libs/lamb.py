@@ -163,23 +163,17 @@ class Lambda:
         vpc_config = {'SubnetIds': [], 'SecurityGroupIds': []}
         # TODO: should also be able to add by subnet ids in config, not just names.
         if subnet_names := self.config.vpc_subnet_names:
-            vpc_config['SubnetIds'] = subnet_ids = [
-                subnet['SubnetId']
-                for name, subnet in ec2.describe_subnets(
-                    self.b3_sess,
-                    name_tag_key=self.config.vpc_subnet_name_tag_key,
-                ).items()
-                if name in subnet_names
-            ]
+            vpc_config['SubnetIds'] = subnet_ids = ec2.subnet_ids(
+                self.b3_sess,
+                subnet_names,
+                self.config.vpc_subnet_name_tag_key,
+            )
             log.info('Assigning subnets: %s - %s', ','.join(subnet_names), subnet_ids)
         if sec_group_names := self.config.vpc_security_group_names:
-            vpc_config['SecurityGroupIds'] = group_ids = [
-                group['GroupId']
-                for group in ec2.describe_security_groups(
-                    self.b3_sess,
-                    sec_group_names,
-                ).values()
-            ]
+            vpc_config['SecurityGroupIds'] = group_ids = ec2.security_group_ids(
+                self.b3_sess,
+                sec_group_names,
+            )
             log.info('Assigning security groups: %s - %s', ','.join(sec_group_names), group_ids)
 
         env_vars = self.config.deployed_env

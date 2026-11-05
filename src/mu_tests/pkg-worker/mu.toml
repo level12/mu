@@ -11,7 +11,7 @@ cluster-name = 'starfleet-workers'
 execution-role-arn = 'arn:aws:iam::1234:role/worker-execution'
 task-role-arn = 'arn:aws:iam::1234:role/worker-task'
 log-group-name = '/ecs/starfleet-workers'
-security-group-ids = ['sg-123']
+security-group-names = ['starfleet-worker']
 memory = 2048
 
 [worker.env]
