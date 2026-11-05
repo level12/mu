@@ -64,6 +64,12 @@ class AWSRecsCRUD:
     def client_list(self) -> list[dict]:
         raise NotImplementedError
 
+    def client_update(self, rec: AWSRec, **kwargs) -> None:
+        raise NotImplementedError
+
+    def needs_update(self, rec: AWSRec, **kwargs) -> bool:
+        return False
+
     def list(self, *list_args) -> dict[str, AWSRec]:
         if self._list_recs is None:
             recs: list[dict] = self.client_list(*list_args)
@@ -74,6 +80,12 @@ class AWSRecsCRUD:
 
     def ensure(self, ident: str, *list_args, **create_kwargs):
         if rec := self.get(ident, *list_args):
+            if self.needs_update(rec, **create_kwargs):
+                self.client_update(rec, **create_kwargs)
+                log.info(f'{self.log_prefix} ensure: record existed, updated')
+                self.clear_cache()
+                return self.get(ident, *list_args)
+
             log.info(f'{self.log_prefix} ensure: record existed')
             return rec
 

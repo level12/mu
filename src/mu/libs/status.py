@@ -80,9 +80,11 @@ class Status:
                 f'{indent}Certificate Status:\n'
                 f'{indent * 2}{self.acm_cert.Status if self.acm_cert else None}\n',
             )
+            api_url = self.gw_api.ApiEndpoint if self.gw_api else None
+            if self.gw_api and self.gw_api.DisableExecuteApiEndpoint:
+                api_url = f'{api_url} (disabled)'
             results.write(
-                f'{indent}Gateway API URL:\n'
-                f'{indent * 2}{self.gw_api.ApiEndpoint if self.gw_api else None}\n',
+                f'{indent}Gateway API URL:\n{indent * 2}{api_url}\n',
             )
             results.write(
                 f'{indent}Gateway Domain Name:\n'
@@ -92,6 +94,18 @@ class Status:
                 f'{indent}Gateway Domain Name Status:\n'
                 f'{indent * 2}{self.gw_domain_name.Status if self.gw_domain_name else None}\n',
             )
+            # mTLS
+            truststore = None
+            warnings = []
+            if self.gw_domain_name and self.gw_domain_name.TruststoreUri:
+                truststore = (
+                    f'{self.gw_domain_name.TruststoreUri} ({self.gw_domain_name.TruststoreVersion})'
+                )
+                warnings = self.gw_domain_name.TruststoreWarnings
+
+            results.write(f'{indent}Mutual TLS Truststore:\n{indent * 2}{truststore}\n')
+            for warning in warnings:
+                results.write(f'{indent * 2}Warning: {warning}\n')
 
         else:
             results.write(

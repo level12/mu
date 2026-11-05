@@ -1,3 +1,5 @@
+import datetime as dt
+
 import pytest
 
 from mu.config import Config
@@ -57,12 +59,15 @@ class TestIntegration:
         logs.clear()
 
         # Ensure created
-        apis.ensure(config.resource_ident, lambda_arn=tmp_la.arn)
+        apis.ensure(config.resource_ident, lambda_arn=tmp_la.arn, disable_execute_api=False)
         assert apis.get(config.resource_ident).ApiEndpoint
 
-        # No error when exists
-        apis.ensure(config.resource_ident, lambda_arn=tmp_la.arn)
-        assert apis.get(config.resource_ident)
+        # Updated in place when exists
+        api_id = apis.get(config.resource_ident).ApiId
+        apis.ensure(config.resource_ident, lambda_arn=tmp_la.arn, disable_execute_api=True)
+        gw_api = apis.get(config.resource_ident)
+        assert gw_api.ApiId == api_id
+        assert gw_api.DisableExecuteApiEndpoint is True
 
         # Delete
         apis.delete(config.resource_ident)
@@ -73,7 +78,7 @@ class TestIntegration:
 
         assert logs.messages == [
             'GatewayAPIs ensure: record created',
-            'GatewayAPIs ensure: record existed',
+            'GatewayAPIs ensure: record existed, updated',
             'GatewayAPIs delete: record deleted',
         ]
 
@@ -90,11 +95,15 @@ class TestIntegration:
 
         # Ensure created
         d_names.ensure(domain_name, cert_arn=cert.arn)
-        assert d_names.get(domain_name).GatewayDomainName
+        rec = d_names.get(domain_name)
+        assert rec.GatewayDomainName
+        assert not rec.TruststoreUri
 
-        # No error when exists
+        # Not updated when nothing changed
         d_names.ensure(domain_name, cert_arn=cert.arn)
-        assert d_names.get(domain_name)
+        rec = d_names.get(domain_name)
+        assert rec.CertificateArn == cert.arn
+        assert not rec.TruststoreUri
 
         # Delete
         d_names.delete(domain_name)
@@ -118,7 +127,11 @@ class TestIntegration:
         cert = testing.persistent_cert(b3_sess)
         la = testing.tmp_lambda(b3_sess, config)
 
-        gw_api: gateway.APIMapping = apis.ensure(config.resource_ident, lambda_arn=la.arn)
+        gw_api: gateway.APIMapping = apis.ensure(
+            config.resource_ident,
+            lambda_arn=la.arn,
+            disable_execute_api=False,
+        )
         d_names.ensure(domain_name, cert_arn=cert.arn)
 
         # Ensure not present from previous test
@@ -219,10 +232,19 @@ class TestCRUD:
         apis = gateway.GatewayAPIs(b3s_fake)
 
         with mocking.GatewayStubs().mock(apis) as stub:
-            apis.ensure('phaser-api', lambda_arn='arn:lambda:engage')
+            apis.ensure('phaser-api', lambda_arn='arn:lambda:engage', disable_execute_api=False)
             api_id = apis.get('phaser-api').ApiId
 
-            apis.ensure('phaser-api', lambda_arn='arn:lambda:engage')
+            gw_api = apis.ensure(
+                'phaser-api',
+                lambda_arn='arn:lambda:engage',
+                disable_execute_api=True,
+            )
+            assert gw_api.ApiId == api_id
+            assert gw_api.DisableExecuteApiEndpoint is True
+
+            # Unchanged, so no update
+            apis.ensure('phaser-api', lambda_arn='arn:lambda:engage', disable_execute_api=True)
 
             apis.delete('phaser-api')
             assert apis.get('phaser-api') is None
@@ -235,14 +257,19 @@ class TestCRUD:
                     Name='phaser-api',
                     ProtocolType='HTTP',
                     Target='arn:lambda:engage',
+                    DisableExecuteApiEndpoint=False,
                 )
                 == 1
             )
-
+            assert (
+                stub.apis.call_count('update_api', ApiId=api_id, DisableExecuteApiEndpoint=True)
+                == 1
+            )
             assert stub.apis.call_count('delete_api', ApiId=api_id)
 
         assert logs.messages == [
             'GatewayAPIs ensure: record created',
+            'GatewayAPIs ensure: record existed, updated',
             'GatewayAPIs ensure: record existed',
             'GatewayAPIs delete: record deleted',
         ]
@@ -253,10 +280,38 @@ class TestCRUD:
         cert_arn = 'arn:acm:cert:app'
 
         with mocking.GatewayStubs().mock(d_names) as stub:
-            d_names.ensure(domain_name, cert_arn=cert_arn)
+            d_names.ensure(
+                domain_name,
+                cert_arn=cert_arn,
+                truststore_uri='',
+                truststore_version=None,
+            )
             rec = d_names.get(domain_name)
 
-            d_names.ensure(domain_name, cert_arn=cert_arn)
+            rec = d_names.ensure(
+                domain_name,
+                cert_arn=cert_arn,
+                truststore_uri='s3://certs/truststore.pem',
+                truststore_version='v2',
+            )
+            assert rec.TruststoreUri == 's3://certs/truststore.pem'
+            assert rec.TruststoreVersion == 'v2'
+
+            # Unchanged, so no update
+            d_names.ensure(
+                domain_name,
+                cert_arn=cert_arn,
+                truststore_uri='s3://certs/truststore.pem',
+                truststore_version='v2',
+            )
+
+            rec = d_names.ensure(
+                domain_name,
+                cert_arn=cert_arn,
+                truststore_uri='',
+                truststore_version=None,
+            )
+            assert rec.TruststoreUri is None
 
             d_names.delete(domain_name)
             assert d_names.get(domain_name) is None
@@ -277,12 +332,46 @@ class TestCRUD:
                 )
                 == 1
             )
-
+            assert (
+                stub.domain_names.call_count(
+                    'update_domain_name',
+                    DomainName=domain_name,
+                    DomainNameConfigurations=[
+                        {
+                            'CertificateArn': cert_arn,
+                            'EndpointType': 'REGIONAL',
+                            'SecurityPolicy': 'TLS_1_2',
+                        },
+                    ],
+                    MutualTlsAuthentication={
+                        'TruststoreUri': 's3://certs/truststore.pem',
+                        'TruststoreVersion': 'v2',
+                    },
+                )
+                == 1
+            )
+            assert (
+                stub.domain_names.call_count(
+                    'update_domain_name',
+                    DomainName=domain_name,
+                    DomainNameConfigurations=[
+                        {
+                            'CertificateArn': cert_arn,
+                            'EndpointType': 'REGIONAL',
+                            'SecurityPolicy': 'TLS_1_2',
+                        },
+                    ],
+                    MutualTlsAuthentication={'TruststoreUri': ''},
+                )
+                == 1
+            )
             assert stub.domain_names.call_count('delete_domain_name', DomainName=rec.DomainName)
 
         assert logs.messages == [
             'DomainNames ensure: record created',
+            'DomainNames ensure: record existed, updated',
             'DomainNames ensure: record existed',
+            'DomainNames ensure: record existed, updated',
             'DomainNames delete: record deleted',
         ]
 
@@ -379,6 +468,30 @@ class TestACMCerts:
             'ACMCerts ensure: record created',
             'Waiting 0.1s for ACMCert to be created',
         ]
+
+    def test_prefers_issued_latest_expiry(self, certs: gateway.ACMCerts):
+        with mock_patch_obj(certs.b3c, 'list_certificates') as m_list_certs:
+            m_list_certs.return_value = {
+                'CertificateSummaryList': [
+                    fake.cert_summary(
+                        arn='arn:expired',
+                        status='EXPIRED',
+                        not_after=dt.datetime(2025, 1, 1, tzinfo=dt.UTC),
+                    ),
+                    fake.cert_summary(
+                        arn='arn:issued-new',
+                        status='ISSUED',
+                        not_after=dt.datetime(2027, 1, 1, tzinfo=dt.UTC),
+                    ),
+                    fake.cert_summary(arn='arn:pending', status='PENDING_VALIDATION'),
+                    fake.cert_summary(
+                        arn='arn:issued-old',
+                        status='ISSUED',
+                        not_after=dt.datetime(2026, 12, 1, tzinfo=dt.UTC),
+                    ),
+                ],
+            }
+            assert certs.get('app.example.com').arn == 'arn:issued-new'
 
     def test_from_aws_summary(self, certs: gateway.ACMCerts):
         cert = gateway.ACMCert.from_aws(fake.cert_summary())
@@ -491,6 +604,63 @@ class TestGateway:
             perm_type='api-invoke',
             api_key=api_id,
         )
+
+    def test_provision_mtls(self, gw: gateway.Gateway, logs: Logs):
+        gw.config.mtls_truststore_uri = 's3://certs/truststore.pem'
+        gw.config.disable_execute_api_endpoint = True
+        gw.config.disable_function_url = True
+
+        with mocking.GatewayStubs().mock_gw(gw) as stub:
+            stub.acm_certs.fake(Status='ISSUED')
+            gw.provision()
+
+        assert logs.messages == [
+            'ACMCerts ensure: record existed',
+            'GatewayAPIs ensure: record created',
+            '  - Api Endpoint: https://cnstryckkl.execute-api.us-east-2.amazonaws.com (disabled)',
+            'DomainNames ensure: record created',
+            '  - Host: d-bbddxy8sl8.execute-api.us-east-2.amazonaws.com',
+            '  - Alias: app.example.com',
+            '  - Status: AVAILABLE',
+            '  - Truststore: s3://certs/truststore.pem (fake-truststore-version)',
+            'APIMappings ensure: record created',
+        ]
+
+        stub.m_s3_head_object.assert_called_once_with(Bucket='certs', Key='truststore.pem')
+        assert (
+            stub.domain_names.call_count(
+                'create_domain_name',
+                DomainName='app.example.com',
+                DomainNameConfigurations=[
+                    {
+                        'CertificateArn': 'arn:mu-test-cert-arn',
+                        'EndpointType': 'REGIONAL',
+                        'SecurityPolicy': 'TLS_1_2',
+                    },
+                ],
+                MutualTlsAuthentication={
+                    'TruststoreUri': 's3://certs/truststore.pem',
+                    'TruststoreVersion': 'fake-truststore-version',
+                },
+            )
+            == 1
+        )
+
+    def test_provision_truststore_unversioned(self, gw: gateway.Gateway):
+        gw.config.mtls_truststore_uri = 's3://certs/truststore.pem'
+        gw.config.disable_execute_api_endpoint = True
+        gw.config.disable_function_url = True
+
+        with mocking.GatewayStubs().mock_gw(gw) as stub:
+            stub.acm_certs.fake(Status='ISSUED')
+            stub.m_s3_head_object.return_value = {'VersionId': 'null'}
+            with pytest.raises(RuntimeError, match='Enable versioning on bucket certs'):
+                gw.provision()
+
+            # Nothing should be changed when the truststore is invalid.
+            assert stub.apis.calls == []
+            assert stub.domain_names.calls == []
+            stub.m_func_perms_ensure.assert_not_called()
 
     def test_cert_describe(self, gw: gateway.Gateway):
         with mocking.acm_certs(gw.acm_certs, exists=True):

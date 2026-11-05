@@ -22,6 +22,7 @@ from . import api_gateway, auth, ec2, ecr, iam, sqs, utils
 
 
 log = logging.getLogger(__name__)
+FUNC_URL_PUBLIC_STMT_ID = 'AllowPublicAccessFunctionUrl'
 
 
 @dataclass
@@ -146,6 +147,9 @@ class Lambda:
         self.provision_repo()
         self.provision_aws_config()
 
+        if self.config.disable_function_url:
+            self.delete_function_url(self.config.lambda_ident)
+
         if self.config.domain_name:
             self.gateway.provision()
 
@@ -200,7 +204,8 @@ class Lambda:
         }
 
         try:
-            response = self.lc.create_function(
+            response = RetryingCreateFunction.run(
+                self.lc,
                 PackageType='Image',
                 Code={'ImageUri': image_uri},
                 **shared_config,
@@ -281,12 +286,7 @@ class Lambda:
         # self.apis.delete(resource_ident)
         self.sqs.delete(resource_ident)
 
-        try:
-            self.lc.delete_function_url_config(FunctionName=lambda_name)
-            log.info('Function URL config deleted')
-        except self.not_found_exc:
-            log.info('Function URL config not found')
-
+        self.delete_function_url(lambda_name)
         self.delete_permissions(lambda_name)
 
         if repo := self.repos.get(resource_ident):
@@ -351,6 +351,22 @@ class Lambda:
 
     #     return api
 
+    def delete_function_url(self, func_name):
+        try:
+            self.lc.delete_function_url_config(FunctionName=func_name)
+            log.info('Function URL config deleted')
+        except self.not_found_exc:
+            log.info('Function URL config not found')
+
+        try:
+            self.lc.remove_permission(
+                FunctionName=func_name,
+                StatementId=FUNC_URL_PUBLIC_STMT_ID,
+            )
+            log.info('Function URL public permission removed')
+        except self.not_found_exc:
+            pass
+
     def function_url(self, func_arn):
         try:
             resp = self.lc.create_function_url_config(
@@ -372,7 +388,7 @@ class Lambda:
             # )
             self.lc.add_permission(
                 FunctionName=func_arn,
-                StatementId='AllowPublicAccessFunctionUrl',
+                StatementId=FUNC_URL_PUBLIC_STMT_ID,
                 Action='lambda:InvokeFunctionUrl',
                 Principal='*',
                 FunctionUrlAuthType='NONE',
@@ -395,7 +411,12 @@ class Lambda:
 
         func_ident = self.config.lambda_ident
         func_arn = self.config.function_arn
-        func_url = self.function_url(func_arn)
+        if self.config.disable_function_url:
+            # Delete it in case it was created before the URL was disabled.
+            self.delete_function_url(func_ident)
+            func_url = None
+        else:
+            func_url = self.function_url(func_arn)
         image_tag: str = repo.push(self.config.image_name)
         image_uri = f'{repo.uri}:{image_tag}'
         self.ensure_func(env, image_uri, func_url)
@@ -403,7 +424,7 @@ class Lambda:
         # If the function was just created, the URL wasn't assigned.  Update the config to get the
         # URL into the environment.  Slows down the first deploy but keeps the app from having to
         # make an API to call get this info (and the permission ramifications that result).
-        if func_url is None:
+        if func_url is None and not self.config.disable_function_url:
             log.info('Updating function to include function URL variable...')
             self.wait_updated(func_ident)
             func_url = self.function_url(func_arn)
@@ -653,6 +674,25 @@ class Function(AWSRec):
         return self.FunctionArn
 
 
+class RetryingCreateFunction(utils.RetryingAction):
+    """
+    A recently created or updated role isn't usable by Lambda until IAM propagates it, so
+    CreateFunction fails until then.  Retry, assuming AWS will get us there eventually.
+    """
+
+    exc_contains = 'cannot be assumed by Lambda'
+    waiting_for = 'role to be assumable by Lambda'
+
+    @classmethod
+    def act(cls, lc, **kwargs):
+        return lc.create_function(**kwargs)
+
+    @classmethod
+    def run(cls, lc, **kwargs):
+        cls.exc_type = lc.exceptions.InvalidParameterValueException
+        return super().run(lc, **kwargs)
+
+
 class Functions(AWSRecsCRUD):
     client_name: str = 'lambda'
     rec_cls: type[Function] = Function
@@ -661,10 +701,7 @@ class Functions(AWSRecsCRUD):
         return self.b3c.list_functions()['Functions']
 
     def client_create(self, name: str, **kwargs):
-        self.b3c.create_function(
-            FunctionName=name,
-            **kwargs,
-        )
+        RetryingCreateFunction.run(self.b3c, FunctionName=name, **kwargs)
 
     def client_delete(self, func: Function):
         self.b3c.delete_function(FunctionName=func.arn)
