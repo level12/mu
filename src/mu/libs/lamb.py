@@ -204,7 +204,8 @@ class Lambda:
         }
 
         try:
-            response = self.lc.create_function(
+            response = RetryingCreateFunction.run(
+                self.lc,
                 PackageType='Image',
                 Code={'ImageUri': image_uri},
                 **shared_config,
@@ -673,6 +674,25 @@ class Function(AWSRec):
         return self.FunctionArn
 
 
+class RetryingCreateFunction(utils.RetryingAction):
+    """
+    A recently created or updated role isn't usable by Lambda until IAM propagates it, so
+    CreateFunction fails until then.  Retry, assuming AWS will get us there eventually.
+    """
+
+    exc_contains = 'cannot be assumed by Lambda'
+    waiting_for = 'role to be assumable by Lambda'
+
+    @classmethod
+    def act(cls, lc, **kwargs):
+        return lc.create_function(**kwargs)
+
+    @classmethod
+    def run(cls, lc, **kwargs):
+        cls.exc_type = lc.exceptions.InvalidParameterValueException
+        return super().run(lc, **kwargs)
+
+
 class Functions(AWSRecsCRUD):
     client_name: str = 'lambda'
     rec_cls: type[Function] = Function
@@ -681,10 +701,7 @@ class Functions(AWSRecsCRUD):
         return self.b3c.list_functions()['Functions']
 
     def client_create(self, name: str, **kwargs):
-        self.b3c.create_function(
-            FunctionName=name,
-            **kwargs,
-        )
+        RetryingCreateFunction.run(self.b3c, FunctionName=name, **kwargs)
 
     def client_delete(self, func: Function):
         self.b3c.delete_function(FunctionName=func.arn)
